@@ -20,6 +20,10 @@ find_package(quadrotor_msgs REQUIRED)
 find_package(trackers_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(Eigen3 REQUIRED)
+# traj_gen is a static library whose exported interface links the Boost::thread
+# and Threads::Threads imported targets, so consumers must define them too.
+find_package(Boost REQUIRED COMPONENTS thread)
+find_package(Threads REQUIRED)
 
 # Generate this package's interfaces
 rosidl_generate_interfaces(${PROJECT_NAME}
