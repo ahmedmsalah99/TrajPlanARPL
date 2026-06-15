@@ -18,6 +18,7 @@ find_package(nav_msgs REQUIRED)
 # Third-party / system dependencies
 find_package(Eigen3 REQUIRED)
 find_package(Boost REQUIRED COMPONENTS thread)
+find_package(Threads REQUIRED)
 find_package(ooqp REQUIRED ooqpbase ooqpdense ooqpgensparse ooqpmehrotra ooqpbound
   ooqpgendense ooqpgondzio ooqpsparse)
 # nlopt is installed system-wide (/usr/local) by install_trajgen_depend.sh and is
@@ -45,10 +46,19 @@ target_include_directories(traj_gen PUBLIC
 
 ament_target_dependencies(traj_gen nav_msgs)
 
+# OOQP, ma27 (HSL Fortran) and blas are static archives with circular
+# interdependencies, and OOQP_LIBRARY embeds libma27.a after gfortran, so wrap
+# them in a linker group to make resolution order-independent. boost::thread is
+# used in QPpolyTraj.cpp and must be linked explicitly.
 target_link_libraries(traj_gen
-  nlopt blas ma27 gfortran
-  ${OOQP_LIBRARIES} ${OOQP_LIBRARY}
+  nlopt
   ${NLOPT_LIBRARIES} ${NLOPT_LIBRARY}
+  -Wl,--start-group
+  ${OOQP_LIBRARIES} ${OOQP_LIBRARY}
+  blas ma27 gfortran
+  -Wl,--end-group
+  Boost::thread
+  Threads::Threads
 )
 
 install(
