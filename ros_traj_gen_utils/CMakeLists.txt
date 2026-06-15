@@ -47,7 +47,9 @@ set(dependencies
 )
 
 # Library
-add_library(ros_traj_gen_utils
+# NOTE: rosidl_generate_interfaces creates a target named ${PROJECT_NAME}, so the
+# C++ library must use a different target name. Keep the output file name unchanged.
+add_library(ros_traj_gen_utils_lib
   src/pub_sub/ros_waypoint_utils.cpp
   src/pub_sub/ros_traj_utils.cpp
   src/pub_sub/apriltag_utils.cpp #Move to Apriltag package later
@@ -57,21 +59,22 @@ add_library(ros_traj_gen_utils
   src/cuboid_map/ros_cuboid_utils.cpp
   src/ros_replanner_utils.cpp
 )
+set_target_properties(ros_traj_gen_utils_lib PROPERTIES OUTPUT_NAME ros_traj_gen_utils)
 
-target_include_directories(ros_traj_gen_utils PUBLIC
+target_include_directories(ros_traj_gen_utils_lib PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include>"
   ${EIGEN3_INCLUDE_DIR}
 )
 
-ament_target_dependencies(ros_traj_gen_utils ${dependencies})
-target_link_libraries(ros_traj_gen_utils ${cpp_typesupport_target})
+ament_target_dependencies(ros_traj_gen_utils_lib ${dependencies})
+target_link_libraries(ros_traj_gen_utils_lib ${cpp_typesupport_target})
 
 # Executable
 add_executable(traj_exe src/traj_manager.cpp)
 ament_target_dependencies(traj_exe ${dependencies})
 target_link_libraries(traj_exe
-  ros_traj_gen_utils
+  ros_traj_gen_utils_lib
   ${cpp_typesupport_target}
   blas ma27 gfortran
 )
@@ -82,7 +85,7 @@ install(
 )
 
 install(
-  TARGETS ros_traj_gen_utils
+  TARGETS ros_traj_gen_utils_lib
   EXPORT export_ros_traj_gen_utils
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
@@ -100,7 +103,7 @@ install(
 )
 
 ament_export_include_directories(include)
-ament_export_libraries(ros_traj_gen_utils)
+ament_export_libraries(ros_traj_gen_utils_lib)
 ament_export_dependencies(rosidl_default_runtime ${dependencies})
 
 if(BUILD_TESTING)
