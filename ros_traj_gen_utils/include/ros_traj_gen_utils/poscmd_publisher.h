@@ -3,13 +3,12 @@
 #include <vector>
 #include <Eigen/Eigen>
 #include <iostream>
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <traj_gen/traj_utils/quaternion.h>
-#include <ros/console.h>
 #include <traj_gen/trajectory/Waypoint.h>
-#include <quadrotor_msgs/PositionCommand.h>
-#include <geometry_msgs/Point.h>
-#include <geometry_msgs/Vector3.h>
+#include <quadrotor_msgs/msg/position_command.hpp>
+#include <geometry_msgs/msg/point.hpp>
+#include <geometry_msgs/msg/vector3.hpp>
 #include <traj_gen/trajectory/TrajBase.h>
 
 #include <string>
@@ -19,11 +18,13 @@
 #define END 2
 class poscmd_publisher {
 private:
-std::vector<quadrotor_msgs::PositionCommand>  flightTraj;
+std::vector<quadrotor_msgs::msg::PositionCommand>  flightTraj;
 volatile int count = 0;
-quadrotor_msgs::PositionCommand finalState;
-ros::Publisher pubCMD;
-ros::Time begin;
+quadrotor_msgs::msg::PositionCommand finalState;
+rclcpp::Node::SharedPtr node_;
+rclcpp::Publisher<quadrotor_msgs::msg::PositionCommand>::SharedPtr pubCMD;
+rclcpp::TimerBase::SharedPtr timer_;
+rclcpp::Time begin;
 void setNewFlightPath(TrajBase * traj);
 
 TrajBase * currTraj;
@@ -35,15 +36,15 @@ int state = HOVER;
 std::string frame_id="simulator";
 double kx=7.4;
 double kv=4.8;
-std::vector<quadrotor_msgs::PositionCommand> position_cmd_history;
-poscmd_publisher( std::string cmd_topic, ros::Timer * timer, double dt);
-static std::vector<quadrotor_msgs::PositionCommand>  arplCMDlist(double dt, double kx, double kv, std::string frame_id, TrajBase * traj); //ARPL COMMAND SPECIFIC 
+std::vector<quadrotor_msgs::msg::PositionCommand> position_cmd_history;
+poscmd_publisher( rclcpp::Node::SharedPtr node, std::string cmd_topic, double dt);
+static std::vector<quadrotor_msgs::msg::PositionCommand>  arplCMDlist(double dt, double kx, double kv, std::string frame_id, TrajBase * traj); //ARPL COMMAND SPECIFIC
 
 void startFlight(TrajBase * traj);
 
 void setEND();
-//Timer Callback 
-void timerCallback(const ros::TimerEvent& event);
+//Timer Callback
+void timerCallback();
 
 void endFlight();
 int getState();

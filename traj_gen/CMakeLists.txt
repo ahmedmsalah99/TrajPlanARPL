@@ -1,79 +1,78 @@
-cmake_minimum_required(VERSION 2.8.2)
+cmake_minimum_required(VERSION 3.8)
 project(traj_gen)
 
-## Compile as C++11, supported in ROS Kinetic and newer
-add_compile_options(-std=c++17)
+# Compile as C++17
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+endif()
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+message(STATUS "CMAKE_MODULE_PATH: ${CMAKE_MODULE_PATH}")
 
-set(CMAKE_VERBOSE_MAKEFILE on)
-set(CMAKE_CXX_FLAGS "-fPIC")
-# add_definitions(-std=c++11)
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
-MESSAGE( STATUS "CMAKE_MODULE_PATH: " ${CMAKE_MODULE_PATH} )
+# ament / ROS 2 dependencies
+find_package(ament_cmake REQUIRED)
+find_package(nav_msgs REQUIRED)
 
-## Find catkin macros and libraries
-## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
-## is used, also find other catkin packages
-
-find_package(catkin REQUIRED COMPONENTS 
-  roscpp
-  nav_msgs
-  nlopt
-  tf
-)
-
-find_package(ooqp REQUIRED ooqpbase ooqpdense ooqpgensparse ooqpmehrotra ooqpbound ooqpgendense
-ooqpgondzio ooqpsparse)
+# Third-party / system dependencies
 find_package(Eigen3 REQUIRED)
-find_package(catkin_simple REQUIRED)
-find_package(catkin REQUIRED)
 find_package(Boost REQUIRED COMPONENTS thread)
+find_package(ooqp REQUIRED ooqpbase ooqpdense ooqpgensparse ooqpmehrotra ooqpbound
+  ooqpgendense ooqpgondzio ooqpsparse)
+# nlopt is installed system-wide (/usr/local) by install_trajgen_depend.sh and is
+# linked directly below; no find_package module is required.
 
-
-include_directories(include ${NLOPT_INCLUDE_DIRS} ${EIGEN3_INCLUDE_DIR} ${catkin_INCLUDE_DIRS} ${OOQP_INCLUDE_DIRS})
-
-# System dependencies are found with CMake's conventions
-# find_package(Boost REQUIRED COMPONENTS system)
-
-catkin_package(
-INCLUDE_DIRS include  ${EIGEN3_INCLUDE_DIR} ${OOQP_INCLUDE_DIR}  ${NLOPT_INCLUDE_DIRS}
-LIBRARIES traj_gen
-CATKIN_DEPENDS roscpp 
+add_library(traj_gen
+  src/traj_src/Waypoint.cpp
+  src/traj_src/TrajBase.cpp
+  src/traj_src/QPpolyTraj.cpp
+  src/traj_src/FOV.cpp
+  src/ros_utils_src/polynomial.cc
+  src/ros_utils_src/EigenQP.cpp
+  src/ros_utils_src/quaternion.cpp
+  src/ooqp_interface/OoqpEigenInterface.cpp
+  src/ooqp_interface/QuadraticProblemFormulation.cpp
 )
 
-#add_dependencies(ooqpei)
-
-add_library(traj_gen 
-src/traj_src/Waypoint.cpp 
-src/traj_src/TrajBase.cpp 
-src/traj_src/QPpolyTraj.cpp
-#src/traj_src/Nlopt_traj.cpp
-src/traj_src/FOV.cpp
-src/ros_utils_src/polynomial.cc
-src/ros_utils_src/EigenQP.cpp
-src/ros_utils_src/quaternion.cpp
-src/ooqp_interface/OoqpEigenInterface.cpp
-src/ooqp_interface/QuadraticProblemFormulation.cpp
+target_include_directories(traj_gen PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<INSTALL_INTERFACE:include>"
+  ${EIGEN3_INCLUDE_DIR}
+  ${NLOPT_INCLUDE_DIRS}
+  ${OOQP_INCLUDE_DIRS}
 )
 
-add_dependencies(traj_gen ${catkin_EXPORTED_TARGETS} ${${PROJECT_NAME}_EXPORTED_TARGETS} )
-  
-
+ament_target_dependencies(traj_gen nav_msgs)
 
 target_link_libraries(traj_gen
-   ${catkin_LIBRARIES}   
-     nlopt blas ma27 gfortran
-       ${OOQP_LIBRARIES} ${OOQP_LIBRARY}  
-       ${NLOPT_LIBRARIES} ${NLOPT_LIBRARY}    
- )
-   
-   
-install(TARGETS traj_gen
-		EXPORT traj_gen_targets
-        ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-        RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION})
+  nlopt blas ma27 gfortran
+  ${OOQP_LIBRARIES} ${OOQP_LIBRARY}
+  ${NLOPT_LIBRARIES} ${NLOPT_LIBRARY}
+)
 
-install(DIRECTORY include/${PROJECT_NAME}/
-        DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION})
+install(
+  DIRECTORY include/
+  DESTINATION include
+)
 
+install(
+  TARGETS traj_gen
+  EXPORT export_traj_gen
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+# Export so downstream ament packages (ros_traj_gen_utils) can link traj_gen
+ament_export_include_directories(include)
+ament_export_libraries(traj_gen)
+ament_export_targets(export_traj_gen HAS_LIBRARY_TARGET)
+ament_export_dependencies(nav_msgs)
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+endif()
+
+ament_package()

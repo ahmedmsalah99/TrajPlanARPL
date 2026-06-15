@@ -1,7 +1,6 @@
 #include <traj_gen/trajectory/QPpolyTraj.h>
 using namespace std;
 #include <ctime>
-#include <ros/ros.h>
 #include <Eigen/Dense>
 
 using namespace Eigen;

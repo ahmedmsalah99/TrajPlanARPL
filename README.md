@@ -73,28 +73,32 @@ git clone https://github.com/KumarRobotics/waypoint_navigation_plugin.git
 
 Run Demo External 
 ------------------------
-please follow these steps on your computer:
-```
-roslaunch waypoint_navigation_plugin rviz.launch
-```
-Open another terminal and run
+This package targets ROS 2 (ament_cmake / rclcpp). Build it inside a colcon
+workspace and source the install before launching:
 
 ```
-roslaunch ros_traj_gen_utils traj_plan.launch
+colcon build --packages-select traj_gen ros_traj_gen_utils
+source install/setup.bash
 ```
 
-Change in waypoint navigation plugin topic: to vehicle_name/waypoints 
-vehicle_name is in the .yaml 
-Load the waypoints in the ros_traj_gen_utils/config/perch_general.bag
-The plugin will publish a nav_msgs/path
+You need a tool that publishes a `nav_msgs/msg/Path` of waypoints (for example a
+ROS 2 build of the waypoint navigation plugin). Then run:
+
+```
+ros2 launch ros_traj_gen_utils traj_plan.launch.py
+```
+
+Change the waypoint publisher topic to: vehicle_name/waypoints 
+vehicle_name is the `device` entry in the .yaml 
+The plugin will publish a nav_msgs/msg/Path
 Output visualized 3D path. 
 topic published on vehicle_name/position_cmd
 
-This is for general flight. If you want to use perching simpling write.
+This is for general flight. If you want to use perching simply run:
 
 
 ```
-roslaunch ros_traj_gen_utils perch.launch
+ros2 launch ros_traj_gen_utils perch.launch.py
 ```
 
 Initially this is set with perch_config target orientation of 90 degrees where you should see it reflected in the acceleration.
@@ -103,7 +107,9 @@ You can also drag and drop waypoints to see various paths.
 
 Launch File
 ------------------------
-The launch file loads std_launch.yaml running  roslaunch ros_traj_gen_utils traj_plan.launch
+The launch file loads std_launch.yaml running  `ros2 launch ros_traj_gen_utils traj_plan.launch.py`.
+ROS 2 parameter YAML files are namespaced under the node name (`traj_exe`) and a
+`ros__parameters:` block (see config/std_launch.yaml).
 
 Config File
 ------------------------

@@ -1,8 +1,6 @@
 sudo apt-get install unzip
 sudo apt-get install gfortran
 git clone https://github.com/arplaboratory/traj_plan_lib_dep.git
-git clone https://github.com/catkin/catkin_simple.git
-git clone https://github.com/ethz-asl/nlopt.git
 cd traj_plan_lib_dep
 unzip ma27.zip
 cd ma27
@@ -29,4 +27,5 @@ make
 sudo make install
 cd ..
 cd ..
-catkin build traj_gen ros_traj_gen_utils
+# Build the ROS 2 packages with colcon from the root of your colcon workspace:
+colcon build --packages-select traj_gen ros_traj_gen_utils

@@ -26,8 +26,6 @@ void ros_replan_utils::set_params(TrajBase * traj, odom_utils* odom, std::vector
 	curr_v =0;
 	std::vector<waypoint> clone_V(*vertices);
 	future_v = clone_V;
-    ros::NodeHandle nh;
-	std::string tag_topic;	
 	visualFeedback = visual_in;
 	if(visualFeedback){	 
 		fullStop = 0;
@@ -43,7 +41,7 @@ TrajBase * ros_replan_utils::getTraj(){
 bool ros_replan_utils::initialPlan(int degreeOpt){
         //std::cout << "initial plan " <<std::endl;
 	curr_v =0;
-	nav_msgs::Odometry current_heading;
+	nav_msgs::msg::Odometry current_heading;
 	if(odom_l->getCurrOdom(&current_heading)){
 		waypoint start(current_heading);
 		trajectory->push_back(start);
@@ -88,7 +86,7 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
         //std::cout << "initial plan " <<std::endl;
 	curr_v =0;
-	nav_msgs::Odometry current_heading;
+	nav_msgs::msg::Odometry current_heading;
 		trajectory->vertices.clear();
 
 	if(odom_l->getCurrOdom(&current_heading)){
@@ -152,11 +150,11 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	}
 	//Anticipate your current position 
 	//double t_off = 0.0115;
-	nav_msgs::Odometry current_heading;
+	nav_msgs::msg::Odometry current_heading;
 	
 	//ros::spinOnce();
 	bool use_odom =false; 
-	double t0 = double(ros::Time::now().sec) + double(ros::Time::now().nsec)*1e-9 ;
+	double t0 = rclcpp::Clock().now().seconds() ;
 	if(odom_l->getCurrOdom(&current_heading)){
 		use_odom = true;
 	}
@@ -165,7 +163,7 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	//	ros::spinOnce();
 	//}
 	//ros::Duration(t_elap*0.25).sleep();
-	double t_wait  = double(ros::Time::now().sec) + double(ros::Time::now().nsec)*1e-9 - t0 ;
+	double t_wait  = rclcpp::Clock().now().seconds() - t0 ;
 	waypoint start(current_heading);
 
 	Eigen::MatrixXd point_info = trajectory->evalTraj(t_elap+t_wait);

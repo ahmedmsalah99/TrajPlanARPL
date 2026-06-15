@@ -89,15 +89,14 @@ void ros_traj_utils::group_Plot(){
 
 
 
-nav_msgs::Path ros_traj_utils::encodePath(int derivOrder, TrajBase * traject, const std::string& frame_id) {
-    nav_msgs::Path msg;
-	ros::NodeHandle nh;
+nav_msgs::msg::Path ros_traj_utils::encodePath(int derivOrder, TrajBase * traject, const std::string& frame_id) {
+    nav_msgs::msg::Path msg;
     double dt = 0.01;
-	bool display2D = false ; 
+	bool display2D = false ;
 	Eigen::MatrixXd position = traject->calculateTrajectory(derivOrder,dt);
     msg.header.frame_id = frame_id;
-    msg.header.stamp = ros::Time::now();
-	geometry_msgs::Quaternion rot;
+    msg.header.stamp = rclcpp::Clock().now();
+	geometry_msgs::msg::Quaternion rot;
 	rot.x = 0;
 	rot.y = 0;
 	rot.z = 0;
@@ -113,9 +112,9 @@ nav_msgs::Path ros_traj_utils::encodePath(int derivOrder, TrajBase * traject, co
 			}*/
 
     for (int k = 0; k < position.rows(); k++) {
-			geometry_msgs::PoseStamped ps;
-			geometry_msgs::Pose pose;
-			geometry_msgs::Point point;
+			geometry_msgs::msg::PoseStamped ps;
+			geometry_msgs::msg::Pose pose;
+			geometry_msgs::msg::Point point;
 
 			point.x = position(k,0);
 			point.y = position(k,1);
@@ -132,7 +131,7 @@ nav_msgs::Path ros_traj_utils::encodePath(int derivOrder, TrajBase * traject, co
 			ps.pose = pose;
 			ps.header.frame_id =  frame_id;
 			double time = (double) k *dt;
-			ps.header.stamp = ros::Time(time);
+			ps.header.stamp = rclcpp::Time(static_cast<int64_t>(time * 1e9));
 			msg.poses.push_back(ps);
     }
 	return msg;
@@ -140,8 +139,8 @@ nav_msgs::Path ros_traj_utils::encodePath(int derivOrder, TrajBase * traject, co
 
 
 
-visualization_msgs::MarkerArray  ros_traj_utils::visualize(TrajBase * traj, const std::string& frame_id){
-	visualization_msgs::MarkerArray Markerarr;
+visualization_msgs::msg::MarkerArray  ros_traj_utils::visualize(TrajBase * traj, const std::string& frame_id){
+	visualization_msgs::msg::MarkerArray Markerarr;
 	Eigen::MatrixXd pos = traj->calculateTrajectory( 0,  0.025);
 	Eigen::MatrixXd acc = traj->calculateTrajectory( 2,  0.025);
 	for(int j=1; j<  pos.rows();j++){
@@ -152,22 +151,21 @@ visualization_msgs::MarkerArray  ros_traj_utils::visualize(TrajBase * traj, cons
 		b3x = b3x/norm;
 		b3y = b3y/norm;
 		b3z = b3z/norm;
-		visualization_msgs::Marker marker;
+		visualization_msgs::msg::Marker marker;
 		marker.header.frame_id = frame_id;
-		marker.header.stamp = ros::Time::now();
+		marker.header.stamp = rclcpp::Clock().now();
 		marker.type = 0;
 		marker.id = j;
-		marker.header.seq = j;
 		marker.color.r  = 1.0;
 		marker.color.a  = 1.0;
 		marker.scale.x = 0.025;
 		marker.scale.y = 0.075;
 		marker.scale.z = 0.05;
-		geometry_msgs::Point start;
+		geometry_msgs::msg::Point start;
 		start.x =  pos(j,0) ;
 		start.y =  pos(j,1) ;
 		start.z =  pos(j,2) ;
-		geometry_msgs::Point end;
+		geometry_msgs::msg::Point end;
 		end.x =  start.x + 0.3*b3x ;
 		end.y =  start.y + 0.3*b3y ;
 		end.z =  start.z + 0.3*b3z ;

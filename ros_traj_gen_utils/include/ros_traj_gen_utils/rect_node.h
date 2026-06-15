@@ -2,7 +2,6 @@
 #define _ros_rect_node_h
 
 #include <Eigen/Dense>
-#include <ros/ros.h>
 #include <iostream>
 
 class rect_node {

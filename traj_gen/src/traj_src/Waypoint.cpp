@@ -11,7 +11,7 @@ using namespace std;
 		status[0] = 1;
 	}
 	
-	waypoint::waypoint( nav_msgs::Odometry odom) {
+	waypoint::waypoint( nav_msgs::msg::Odometry odom) {
 		dim = 4;
 		Quaternion q;
 		pos = Eigen::VectorXd::Zero(4);
