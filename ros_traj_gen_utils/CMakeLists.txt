@@ -76,7 +76,6 @@ ament_target_dependencies(traj_exe ${dependencies})
 target_link_libraries(traj_exe
   ros_traj_gen_utils_lib
   ${cpp_typesupport_target}
-  blas ma27 gfortran
 )
 
 install(
