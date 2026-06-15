@@ -33,11 +33,15 @@ apriltag_utils::apriltag_utils(){
 	H_RC(3,3)=1;
 }
 
-void apriltag_utils::timerCallback(const ros::TimerEvent& event)
+void apriltag_utils::setNode(rclcpp::Node::SharedPtr node){
+	node_ = node;
+}
+
+void apriltag_utils::timerCallback()
 {
 
 	static bool first_read = false;
-	nav_msgs::Odometry header;
+	nav_msgs::msg::Odometry header;
 	//if buffer isn't full check if the last value has the same time stamp
 	//if the time stamps are the same then remove it redundent call backs bad. 
 	if (first_read){
@@ -48,8 +52,8 @@ void apriltag_utils::timerCallback(const ros::TimerEvent& event)
 			if(index < 0){
 				index +=BUFFER_SIZE;
 			}
-			//remove redudent timer callbacks 
-			if(abs(header.header.stamp.toSec() - odom_buffer[index].header.stamp.toSec()) < 0.01){
+			//remove redudent timer callbacks
+			if(abs(rclcpp::Time(header.header.stamp).seconds() - rclcpp::Time(odom_buffer[index].header.stamp).seconds()) < 0.01){
 				return;
 			}
 		}
@@ -65,14 +69,16 @@ void apriltag_utils::timerCallback(const ros::TimerEvent& event)
 }
 
 void apriltag_utils::sub_odom(std::string odom_topic){
-    ros::NodeHandle nh;
 	//std::cout << "SUbscibed " <<odom_topic <<std::endl;
-	aprilOdomSub = nh.subscribe(odom_topic, 1, &odom_utils::outputListiner, &odom_l, ros::TransportHints().tcpNoDelay());
-	timer = nh.createTimer(ros::Duration(0.01), &apriltag_utils::timerCallback,this);
+	aprilOdomSub = node_->create_subscription<nav_msgs::msg::Odometry>(
+		odom_topic, rclcpp::QoS(1),
+		[this](const nav_msgs::msg::Odometry &msg){ odom_l.outputListiner(msg); });
+	timer = node_->create_wall_timer(std::chrono::milliseconds(10),
+		std::bind(&apriltag_utils::timerCallback, this));
 }
 
 //Takes the apriltage detection message and stores it in a perch_constraint  format
-void apriltag_utils::aprilListen(const geometry_msgs::PoseArray &msg){
+void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseArray &msg){
 	//If no detections exit 
 	if (msg.poses.size()==0){
 		return;
@@ -81,15 +87,15 @@ void apriltag_utils::aprilListen(const geometry_msgs::PoseArray &msg){
 	if ((circle_start+1)!=circle_end){
 		return;
 	}
-	//Check if the Odom is being read 
-	double tag_read = msg.header.stamp.toSec();
+	//Check if the Odom is being read
+	double tag_read = rclcpp::Time(msg.header.stamp).seconds();
 	int index = circle_start -40;
 	//std::cout << "Tag read" <<std::endl;
 	if(index <0){
 		index+=BUFFER_SIZE;
 	}
-	if(tag_read > odom_buffer[index].header.stamp.toSec()){
-		while(tag_read > odom_buffer[index].header.stamp.toSec()){
+	if(tag_read > rclcpp::Time(odom_buffer[index].header.stamp).seconds()){
+		while(tag_read > rclcpp::Time(odom_buffer[index].header.stamp).seconds()){
 			//std::cout << tag_read - odom_buffer[index].header.stamp.toSec() <<std::endl;
 			index=(index+1)%BUFFER_SIZE;
 			if(index == circle_start){
@@ -100,7 +106,7 @@ void apriltag_utils::aprilListen(const geometry_msgs::PoseArray &msg){
 		}
 	}
 	else{
-		while(tag_read < odom_buffer[index].header.stamp.toSec()){
+		while(tag_read < rclcpp::Time(odom_buffer[index].header.stamp).seconds()){
 			index-=1;
 			if(index <0){
 				index+=BUFFER_SIZE;
@@ -120,7 +126,6 @@ void apriltag_utils::aprilListen(const geometry_msgs::PoseArray &msg){
 
 bool apriltag_utils::getLanding(Eigen::Matrix4d * pointer_in){
 	if(flag==1){
-		ros::NodeHandle nh;
 		//aprilOdomSub.shutdown();
 		//std::cout << "Succesful Read" <<std::endl;
 		joint_pose comb_pose;
@@ -140,9 +145,8 @@ bool apriltag_utils::getLanding(Eigen::Matrix4d * pointer_in){
 
 } 
 
-bool apriltag_utils::getLanding(Eigen::Matrix4d * pointer_in, nav_msgs::Odometry * msg2){
+bool apriltag_utils::getLanding(Eigen::Matrix4d * pointer_in, nav_msgs::msg::Odometry * msg2){
 	if(flag==1){
-		ros::NodeHandle nh;
 		//aprilOdomSub.shutdown();
 		//std::cout << "Succesful Read" <<std::endl;
 		joint_pose comb_pose;
@@ -164,8 +168,8 @@ bool apriltag_utils::getLanding(Eigen::Matrix4d * pointer_in, nav_msgs::Odometry
 
 } 
 
-nav_msgs::Odometry apriltag_utils::convertMsg(Eigen::Matrix4d H, nav_msgs::Odometry header){
-	nav_msgs::Odometry  pose;
+nav_msgs::msg::Odometry apriltag_utils::convertMsg(Eigen::Matrix4d H, nav_msgs::msg::Odometry header){
+	nav_msgs::msg::Odometry  pose;
 	pose.header = header.header;
 	pose.pose.pose.position.x = H(0,3);
 	pose.pose.pose.position.y = H(1,3);
@@ -196,7 +200,7 @@ bool apriltag_utils::getLanding(joint_pose * pointer_in){
 
 Eigen::Matrix4d apriltag_utils::WorldRot(joint_pose pose){
 	//Convert Odometry to Homogenous Transform 
-	nav_msgs::Odometry odom_read = pose.quad;
+	nav_msgs::msg::Odometry odom_read = pose.quad;
 	Eigen::Matrix4d H_IR= Eigen::Matrix4d::Zero();
 	H_IR(0,3) = odom_read.pose.pose.position.x;
 	H_IR(1,3) = odom_read.pose.pose.position.y;
@@ -214,7 +218,7 @@ Eigen::Matrix4d apriltag_utils::WorldRot(joint_pose pose){
 
 	//Convert Apriltag to Homogenous Transform;
 	Eigen::Matrix4d H_CT = Eigen::Matrix4d::Zero();	
-	geometry_msgs::Pose bundle = pose.target;
+	geometry_msgs::msg::Pose bundle = pose.target;
 	H_CT(0,3) = bundle.position.x;//*0.25;
 	H_CT(1,3) = bundle.position.y;//*0.25;
 	H_CT(2,3) = bundle.position.z;//*0.25;

@@ -1,7 +1,7 @@
 #include <Eigen/Eigen>
 #ifndef Waypoint_H
 #define Waypoint_H
-#include <nav_msgs/Odometry.h>
+#include <nav_msgs/msg/odometry.hpp>
 #include <vector>
 
 
@@ -29,7 +29,7 @@ public:
 
 	//Constructor if we choose not to set one of the values 
 	//Initialize the waypoint from an odometry message 
-	waypoint(nav_msgs::Odometry odom);
+	waypoint(nav_msgs::msg::Odometry odom);
 	//Null means this waypoint has no velocity or acceleration constraint.
 	waypoint(Eigen::VectorXd pose);
 	//For the Bezier Curves you can add just an inequalit constraint

@@ -1,28 +1,30 @@
-device: "/quadrotor" 
-#vehicle name the 
-odom_frame: "/odom" 
-#For imulation this will make the planner automatically subscribe to
-#odom_frame: "/quadrotor_ukf/control_odom"
-#visual: false #Do you use Visual Feedback from an apriltag (Deprecated need sometime over the weekend for fixing)
-target_pose:  #4x4 target (Given for perching manually)
-#row 1
-  - 0.0
-  - 0.0
-  - -1.0
-  - 0.0
-#row 2
-  - 0.0
-  - 1.0
-  - 0.0
-  - 0.0
-#row 3
-  - 1.0
-  - 0.0
-  - 0.0
-  - 0.0
-#row 4
-  - 0.0
-  - 0.0
-  - 0.0
-  - 1.0
-
+traj_exe:
+  ros__parameters:
+    device: "/quadrotor"     # vehicle name
+    odom_frame: "/odom"      # odometry frame; planner subscribes to <device><odom_frame>
+    # odom_frame: "/quadrotor_ukf/control_odom"  # for simulation
+    visual: false            # use visual feedback from an apriltag
+    replan: false            # enable online replanning
+    display_2D: false        # publish 2D velocity/acceleration paths
+    # 4x4 target (row-major, given for perching manually):
+    # row1: 0  0 -1 0
+    # row2: 0  1  0 0
+    # row3: 1  0  0 0
+    # row4: 0  0  0 1
+    target_pose:
+      - 0.0
+      - 0.0
+      - -1.0
+      - 0.0
+      - 0.0
+      - 1.0
+      - 0.0
+      - 0.0
+      - 1.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0

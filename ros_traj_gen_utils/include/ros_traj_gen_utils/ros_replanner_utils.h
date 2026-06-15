@@ -4,8 +4,7 @@
 #include <Eigen/Eigen>
 #include <iostream>
 #include "odom_utils.h"
-#include <ros/ros.h>
-#include <ros/console.h>
+#include <rclcpp/rclcpp.hpp>
 #include <traj_gen/trajectory/Waypoint.h>
 #include <traj_gen/trajectory/QPpolyTraj.h>
 #include <ros_traj_gen_utils/apriltag_utils.h>

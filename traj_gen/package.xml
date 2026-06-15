@@ -1,52 +1,25 @@
 <?xml version="1.0"?>
-<package format="2">
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>traj_gen</name>
   <version>0.0.0</version>
-  <description>The TrajGen package</description>
+  <description>Polynomial trajectory generation library (ROS 2 port).</description>
 
-  <!-- One maintainer tag required, multiple allowed, one person per tag -->
-  <!-- Example:  -->
-  <!-- <maintainer email="jane.doe@example.com">Jane Doe</maintainer> -->
   <maintainer email="jeff@todo.todo">jeff</maintainer>
+  <license>GPLv3</license>
 
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <!-- One license tag required, multiple allowed, one license per tag -->
-  <!-- Commonly used license strings: -->
-  <!--   BSD, MIT, Boost Software License, GPLv2, GPLv3, LGPLv2.1, LGPLv3 -->
-  <license>TODO</license>
+  <depend>nav_msgs</depend>
+  <depend>eigen</depend>
 
+  <!-- System / third-party dependencies installed via install_trajgen_depend.sh:
+       nlopt, ooqp, blas, ma27, gfortran -->
 
-  <!-- Url tags are optional, but multiple are allowed, one per tag -->
-  <!-- Optional attribute type can be: website, bugtracker, or repository -->
-  <!-- Example: -->
-  <!-- <url type="website">http://wiki.ros.org/TrajGen</url> -->
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
-
-  <!-- Author tags are optional, multiple are allowed, one per tag -->
-  <!-- Authors do not have to be maintainers, but could be -->
-  <!-- Example: -->
-  <!-- <author email="jane.doe@example.com">Jane Doe</author> -->
-
-  <buildtool_depend>catkin</buildtool_depend>
-  <build_depend>roscpp</build_depend>
-
-  <buildtool_depend>catkin_simple</buildtool_depend>
-
-  <build_export_depend>roscpp</build_export_depend>
-
-
-   <depend>nlopt</depend>
-
-  <exec_depend>roscpp</exec_depend>
-
-  <exec_depend>roscpp</exec_depend>
-
-
-
-
-  <!-- The export tag contains other, unspecified, tags -->
   <export>
-    <!-- Other tools can request additional information be placed here -->
-
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

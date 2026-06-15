@@ -4,7 +4,7 @@ ros_cuboid_utils::ros_cuboid_utils(){
 
 }
 
-void ros_cuboid_utils::setListiner(const ros_traj_gen_utils::cuboid_map &msg){
+void ros_cuboid_utils::setListiner(const ros_traj_gen_utils::msg::CuboidMap &msg){
 	graph = msg;
   if(msg.pos.size()>0){
   	exist_reading = true;
@@ -24,7 +24,7 @@ bool ros_cuboid_utils::existReading() const{
 	return exist_reading;
 } //checks if there is a map
 
-ros_traj_gen_utils::cuboid_map ros_cuboid_utils::getGraph() const{
+ros_traj_gen_utils::msg::CuboidMap ros_cuboid_utils::getGraph() const{
 	return graph;
 } 
 
@@ -133,14 +133,14 @@ std::vector<rect_node> ros_cuboid_utils::shrink(std::vector<rect_node> path, flo
 	return final_list;
 }
 
-visualization_msgs::MarkerArray ros_cuboid_utils::visulizeSafeFlight(std::vector<rect_node>  path){
+visualization_msgs::msg::MarkerArray ros_cuboid_utils::visulizeSafeFlight(std::vector<rect_node>  path){
   marker_array_.markers.clear();
 
 
   for(int i =0;i<path.size();i++){
       rect_node box = path[i];
       Eigen::Matrix<float, 3,2> dim = box.get_dim();
-      visualization_msgs::Marker marker;
+      visualization_msgs::msg::Marker marker;
       marker.header.frame_id="mocap";
       marker.pose.position.x =  0.5*dim(0,1)+dim(0,0);
       marker.pose.position.y =  0.5*dim(1,1)+dim(1,0);
@@ -164,7 +164,7 @@ visualization_msgs::MarkerArray ros_cuboid_utils::visulizeSafeFlight(std::vector
 			// Set the marker type.  Initially this is CUBE, and cycles between that and SPHERE, ARROW, and CYLINDER
 			marker.type = 1; //CUBE
 			// Set the marker action.  Options are ADD and DELETE
-			marker.action = visualization_msgs::Marker::ADD;
+			marker.action = visualization_msgs::msg::Marker::ADD;
       marker_array_.markers.push_back(marker);
   }
   return marker_array_;

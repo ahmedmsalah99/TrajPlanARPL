@@ -3,9 +3,8 @@
 #include <vector>
 #include <Eigen/Eigen>
 
-#include <ros/ros.h>
-#include <ros/console.h>
-#include <nav_msgs/Path.h>
+#include <rclcpp/rclcpp.hpp>
+#include <nav_msgs/msg/path.hpp>
 #include <traj_gen/trajectory/Waypoint.h>
 #include <ros_traj_gen_utils/ros_traj_utils.h>
 #include <traj_gen/traj_utils/quaternion.h>
@@ -16,11 +15,13 @@ class ros_waypoint_utils {
 private:
 std::vector<waypoint> vertices;
 std::string frame_id = "simulator";
+rclcpp::Node::SharedPtr node_;
 public:
 
 int flag = 0;
-void waypointListiner(const nav_msgs::Path &msg); //Takes a stdTrajectory MSG and stores it in the private trajectory variable
-std::vector<waypoint>* getTrajectory(); //returns null if nothing is there 
+void setNode(rclcpp::Node::SharedPtr node); // node used for reading optional waypoint parameters
+void waypointListiner(const nav_msgs::msg::Path &msg); //Takes a stdTrajectory MSG and stores it in the private trajectory variable
+std::vector<waypoint>* getTrajectory(); //returns null if nothing is there
 std::string getFrameId();
 
 };

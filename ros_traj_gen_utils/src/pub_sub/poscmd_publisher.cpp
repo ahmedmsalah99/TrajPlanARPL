@@ -3,23 +3,25 @@ using namespace std;
 
 
 
-poscmd_publisher::poscmd_publisher(std::string cmd_topic, ros::Timer * timer, double dt ){
-	ros::NodeHandle nh;
-	pubCMD = nh.advertise<quadrotor_msgs::PositionCommand>(cmd_topic,10);
+poscmd_publisher::poscmd_publisher(rclcpp::Node::SharedPtr node, std::string cmd_topic, double dt )
+	: node_(node), begin(node->now()){
+	pubCMD = node_->create_publisher<quadrotor_msgs::msg::PositionCommand>(cmd_topic, 10);
 	state =END;
-	*timer = nh.createTimer(ros::Duration(dt), &poscmd_publisher::timerCallback , this);
+	timer_ = node_->create_wall_timer(
+		std::chrono::duration<double>(dt),
+		std::bind(&poscmd_publisher::timerCallback, this));
 }
 
 
 
-void poscmd_publisher::timerCallback(const ros::TimerEvent& event){
+void poscmd_publisher::timerCallback(){
 	if(state==END){
 		return;// no flight
 	}
-	quadrotor_msgs::PositionCommand point;
+	quadrotor_msgs::msg::PositionCommand point;
 	if(state==FLIGHT){
-		ros::Time now = ros::Time::now();	
-		double traj_time = (now-begin).toSec();		
+		rclcpp::Time now = node_->now();
+		double traj_time = (now-begin).seconds();
 		if(traj_time >= (totalTime)){
 			traj_time = totalTime;
 			state = HOVER;
@@ -28,24 +30,24 @@ void poscmd_publisher::timerCallback(const ros::TimerEvent& event){
 
 		Eigen::MatrixXd pt;
 		pt = currTraj->evalTraj(traj_time);
-		geometry_msgs::Point posXYZ;
+		geometry_msgs::msg::Point posXYZ;
 		posXYZ.x = pt(0,0);
 		posXYZ.y = pt(0,1);
 		posXYZ.z = pt(0,2);
-		geometry_msgs::Vector3 veloXYZ;
+		geometry_msgs::msg::Vector3 veloXYZ;
 		veloXYZ.x = pt(1,0);
 		veloXYZ.y = pt(1,1);
 		veloXYZ.z = pt(1,2);
-		geometry_msgs::Vector3 accelXYZ;
+		geometry_msgs::msg::Vector3 accelXYZ;
 		accelXYZ.x = pt(2,0);
 		accelXYZ.y = pt(2,1);
 		accelXYZ.z = pt(2,2);
-		geometry_msgs::Vector3 jerkXYZ;
+		geometry_msgs::msg::Vector3 jerkXYZ;
 		jerkXYZ.x = pt(3,0);
 		jerkXYZ.y = pt(3,1);
 		jerkXYZ.z = pt(3,2);
 		point.position = posXYZ;
-		point.velocity = veloXYZ; 
+		point.velocity = veloXYZ;
 		point.acceleration = accelXYZ;
 		point.jerk =  jerkXYZ;
 		point.yaw = 0;//pt(0,3);
@@ -61,14 +63,12 @@ void poscmd_publisher::timerCallback(const ros::TimerEvent& event){
 		//if(traj_time >= (currTraj.segmentTimes.back())){
 		finalState = point;
 		if(totalTime- traj_time < 0.01){
-			ros::NodeHandle nh;
-			bool motorsOff;
-			//nh.getParam("/trajectory_gen_demo/motorOff", motorsOff);
-			//if(motorsOff){
-			nh.setParam("/quadrotor/quadrotor_simulator_so3/enableUnity",false);
-			//}
+			// NOTE (ROS 2 port): the ROS 1 version set the global parameter
+			// /quadrotor/quadrotor_simulator_so3/enableUnity = false here. ROS 2 has no
+			// global parameters; setting another node's parameter requires an
+			// AsyncParametersClient. This simulator-specific hook is omitted in the port.
 		}
-			//Set the final state to the last point 
+			//Set the final state to the last point
 		//}
 		//else{
 			//point = flightTraj[count];
@@ -76,13 +76,13 @@ void poscmd_publisher::timerCallback(const ros::TimerEvent& event){
 			//count+=1;
 			//std::cout << count <<std::endl;
 		//}
-		
+
 	}
 	if(state==HOVER){
 		point = finalState;
 	}
-    point.header.stamp = ros::Time::now();
-	pubCMD.publish(point);
+    point.header.stamp = node_->now();
+	pubCMD->publish(point);
 }
 
 
@@ -90,14 +90,14 @@ void poscmd_publisher::setNewFlightPath( TrajBase * traj){
 		count = 0; //reset count
 		currTraj = traj;
 		totalTime = 0.0;
-		for(int i=0;i<traj->segmentTimes.size();i++){
+		for(size_t i=0;i<traj->segmentTimes.size();i++){
 			totalTime+=traj->segmentTimes[i];
 		}
-		//Round down the total time 
+		//Round down the total time
 		totalTime = totalTime/0.01;
 		totalTime = floor(totalTime);
 		totalTime = totalTime*0.01;
-		begin = ros::Time::now();
+		begin = node_->now();
 		state = FLIGHT;
 }
 
@@ -117,37 +117,37 @@ void poscmd_publisher::startFlight(TrajBase * traj){
 	setNewFlightPath(traj);
 }
 
-std::vector<quadrotor_msgs::PositionCommand> poscmd_publisher::arplCMDlist(double dt, double kx, double kv, std::string frame_id, TrajBase * traj){
-	std::vector<quadrotor_msgs::PositionCommand>  posCMD;
+std::vector<quadrotor_msgs::msg::PositionCommand> poscmd_publisher::arplCMDlist(double dt, double kx, double kv, std::string frame_id, TrajBase * traj){
+	std::vector<quadrotor_msgs::msg::PositionCommand>  posCMD;
 	Eigen::MatrixXd pos =  traj->calculateTrajectory( 0, dt);
 	Eigen::MatrixXd velo =  traj->calculateTrajectory( 1, dt);
 	Eigen::MatrixXd accel =  traj->calculateTrajectory( 2, dt);
 	Eigen::MatrixXd jerk =  traj->calculateTrajectory( 3, dt);
 	//double totalTime = traj.segmentTimes[traj.segmentTimes.size()-1];
 	double totalTime = 0.0;
-	for(int i =0;i<traj->segmentTimes.size();i++){
+	for(size_t i =0;i<traj->segmentTimes.size();i++){
 		totalTime+=traj->segmentTimes[i];
 	}
 	for(int j =0; j < totalTime/dt; j++){
-		quadrotor_msgs::PositionCommand point;
-		geometry_msgs::Point posXYZ;
+		quadrotor_msgs::msg::PositionCommand point;
+		geometry_msgs::msg::Point posXYZ;
 		posXYZ.x = pos(j,0);
 		posXYZ.y = pos(j,1);
 		posXYZ.z = pos(j,2);
-		geometry_msgs::Vector3 veloXYZ;
+		geometry_msgs::msg::Vector3 veloXYZ;
 		veloXYZ.x = velo(j,0);
 		veloXYZ.y = velo(j,1);
 		veloXYZ.z = velo(j,2);
-		geometry_msgs::Vector3 accelXYZ;
+		geometry_msgs::msg::Vector3 accelXYZ;
 		accelXYZ.x = accel(j,0);
 		accelXYZ.y = accel(j,1);
 		accelXYZ.z = accel(j,2);
-		geometry_msgs::Vector3 jerkXYZ;
+		geometry_msgs::msg::Vector3 jerkXYZ;
 		jerkXYZ.x = jerk(j,0);
 		jerkXYZ.y = jerk(j,1);
 		jerkXYZ.z = jerk(j,2);
 		point.position = posXYZ;
-		point.velocity = veloXYZ; 
+		point.velocity = veloXYZ;
 		point.acceleration = accelXYZ;
 		point.jerk =  jerkXYZ;
 		point.yaw = pos(j,3);
@@ -163,5 +163,3 @@ std::vector<quadrotor_msgs::PositionCommand> poscmd_publisher::arplCMDlist(doubl
 	}
 	return posCMD;
 }
-
-

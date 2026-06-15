@@ -1,6 +1,6 @@
-Header header
+std_msgs/Header header
 #refers to the left corner position of the cuboid
-geometry_msgs/Point[] pos 
+geometry_msgs/Point[] pos
 #Size refers to the size of the cuboid
 geometry_msgs/Vector3[] scale
 #Connectivity adjacency matrix

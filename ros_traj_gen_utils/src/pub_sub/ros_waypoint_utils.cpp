@@ -5,6 +5,10 @@ using namespace std;
 static const std::string low_title[4] = { "lowX", "lowY", "lowZ", "lowW" };
 static const std::string up_title[4] = { "upX", "upY", "upZ", "upW" };
 
+void ros_waypoint_utils::setNode(rclcpp::Node::SharedPtr node){
+	node_ = node;
+}
+
 std::vector<waypoint>*  ros_waypoint_utils::getTrajectory(){
 	if (flag){
 		return &vertices;
@@ -12,109 +16,59 @@ std::vector<waypoint>*  ros_waypoint_utils::getTrajectory(){
 	return NULL;
 }
 
-waypoint inequalityParse(waypoint w, int pointNum, string S ){
-    ros::NodeHandle nh;
-    XmlRpc::XmlRpcValue ineq_list;
-	Eigen::Vector4d numIneqCon = Eigen::VectorXd::Zero(4);
-	double conL;
-	double upL;
-    if(nh.getParam(S, ineq_list)){
-		for (int8_t i = 0; i < ineq_list.size(); i++) 
-		{
-			waypoint_ineq_const ineq_temp;
-			XmlRpc::XmlRpcValue sublist = ineq_list[i];
-			ineq_temp.derivOrder=sublist["derivOrder"];
-			ineq_temp.timeOffset=sublist["toff"];
-			Eigen::Vector4d low = Eigen::VectorXd::Zero(4);
-			Eigen::Vector4d upper= Eigen::VectorXd::Zero(4);
-			//X 
-			for (int j = 0; j <4; j++){
-				    std::string low_label = low_title[j];
-					std::string up_label = up_title[j] ;
-					//See if the constraint exsits 
-					if(sublist.hasMember(low_label) && sublist.hasMember(up_label)){
-						if (sublist[low_label].getType()==2){
-							int temp = sublist[low_label];
-							low(j) = static_cast<double>(temp);
-						}
-						else{
-							low(j)  = sublist[low_label];
-						}
-						if (sublist[up_label].getType()==2){
-							int temp = sublist[up_label];
-							upper(j) = static_cast<double>(temp);
-						}
-						else{
-							upper(j)  = sublist[up_label];
-						}
-						//Final check to see if the constraint makes sense i.e upper > low
-						if(upper(j) < low(j)){
-							std::cout << "AXIS: " << j << std::endl;
-							std::cout << "error constraint: " << S << std::endl;
-							std::cout << "Ignored" << std::endl;
-							numIneqCon(j)=0;
-						}
-						else{
-							numIneqCon(j)=1;
-						}
-					}
-				}
-				//std::cout << "upper Con" << upper <<std::endl;
-				//std::cout << "lower Con" << low <<std::endl;
-				ineq_temp.lower = low;
-				ineq_temp.upper = upper;
-				ineq_temp.InEqDim = numIneqCon;
-				//std::cout << ineq_temp.InEqDim << std::endl;
-				w.ineq_constraint.push_back(ineq_temp);
-				}
-		}
-	return w;
+// Helper that reads a double-array parameter from the node if it exists.
+static bool getDoubleArrayParam(rclcpp::Node::SharedPtr node, const std::string& name,
+                                std::vector<double>* out){
+	if(!node){
+		return false;
 	}
-	
+	if(!node->has_parameter(name)){
+		node->declare_parameter<std::vector<double>>(name, std::vector<double>{});
+	}
+	std::vector<double> val = node->get_parameter(name).as_double_array();
+	if(val.empty()){
+		return false;
+	}
+	*out = val;
+	return true;
+}
 
-waypoint  additionalConstraint(waypoint w, int pointNum){
-    ros::NodeHandle nh;
+// NOTE (ROS 2 port): the original ROS 1 implementation parsed per-waypoint inequality
+// constraints from nested XmlRpc parameter dictionaries (e.g. /trajectory_gen_demo/ineqN
+// as a list of dicts). ROS 2 has no XmlRpc parameter type, and the bundled launch configs
+// do not set these parameters, so the nested-inequality parsing is intentionally not
+// ported. The simpler per-waypoint vel/acc/jerk/snap constraints below are ported using
+// the ROS 2 parameter API.
+waypoint additionalConstraint(rclcpp::Node::SharedPtr node, waypoint w, int pointNum){
 	std::vector<double> constraint;
-	string S = "/trajectory_gen_demo/vel0";
-	S[24] = pointNum+48;
-	if (nh.getParam(S, constraint)){
+	std::string idx = std::to_string(pointNum);
+	if (getDoubleArrayParam(node, "vel" + idx, &constraint) && constraint.size() >= 4){
 		Eigen::Vector4d vel(constraint.data());
 		w.setVel(vel);
 	}
-	S = "/trajectory_gen_demo/acc0";
-	S[24] = pointNum+48;
-	if (nh.getParam(S, constraint)){
+	if (getDoubleArrayParam(node, "acc" + idx, &constraint) && constraint.size() >= 4){
 		Eigen::Vector4d acc(constraint.data());
 		w.setAccel(acc);
-	}	
-	 S = "/trajectory_gen_demo/jer0";
-	S[24] = pointNum+48;
-	if (nh.getParam(S, constraint)){
+	}
+	if (getDoubleArrayParam(node, "jer" + idx, &constraint) && constraint.size() >= 4){
 		Eigen::Vector4d jer(constraint.data());
 		w.setJerk(jer);
-		
-	}	
-	 S = "/trajectory_gen_demo/sna0";
-	S[24] = pointNum+48;
-	if (nh.getParam(S, constraint)){
+	}
+	if (getDoubleArrayParam(node, "sna" + idx, &constraint) && constraint.size() >= 4){
 		Eigen::Vector4d sna(constraint.data());
 		w.setSnap(sna);
 	}
-	S =  "/trajectory_gen_demo/ineq0";
-	S[25] = pointNum+48;
-	//Push additional inequality constraints 
-	w = inequalityParse(w, pointNum, S);
 	return w;
 }
 
-void ros_waypoint_utils::waypointListiner(const nav_msgs::Path &msg){
-	std::vector<geometry_msgs::PoseStamped> points= msg.poses;
+void ros_waypoint_utils::waypointListiner(const nav_msgs::msg::Path &msg){
+	std::vector<geometry_msgs::msg::PoseStamped> points= msg.poses;
 	frame_id = msg.header.frame_id;
 	vertices.clear();
 	double prevYaw = 0;
-	for(int i =0; i <points.size();i++){
+	for(size_t i =0; i <points.size();i++){
 		Eigen::Vector4d tempPoint(4);
-		geometry_msgs::Pose pose = points[i].pose;
+		geometry_msgs::msg::Pose pose = points[i].pose;
 		tempPoint(0) = pose.position.x;
 		tempPoint(1) = pose.position.y;
 		tempPoint(2) = pose.position.z;
@@ -134,7 +88,7 @@ void ros_waypoint_utils::waypointListiner(const nav_msgs::Path &msg){
 		tempPoint(3) = ang.yaw;
 		prevYaw = ang.yaw;
 		waypoint w(tempPoint);
-		w = additionalConstraint(w,i);
+		w = additionalConstraint(node_, w, i);
 		vertices.push_back(w);
 	}
 	flag = 1;
@@ -143,4 +97,3 @@ void ros_waypoint_utils::waypointListiner(const nav_msgs::Path &msg){
 std::string ros_waypoint_utils::getFrameId(){
 	return frame_id;
 }
-
