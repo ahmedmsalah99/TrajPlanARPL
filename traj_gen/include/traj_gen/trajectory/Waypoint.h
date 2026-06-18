@@ -6,8 +6,8 @@
 
 
 typedef struct {
-    int derivOrder;
-    double timeOffset;
+    int derivOrder = 0;
+    double timeOffset = 0.0;
     Eigen::Vector4d lower, upper;
     Eigen::Vector4d InEqDim; //Declares wether this constraint is active or not
 } waypoint_ineq_const;

@@ -631,9 +631,11 @@ QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 	for(int i = 1; i < vertices.size(); i++){
 		for(int j =0; j < vertices[i].ineq_constraint.size(); j++){// Check if it is a valid constraint
 			if(vertices[i].ineq_constraint[j].InEqDim(dimension)==1){
-				double time = segmentTimes[i-1]; //modify to be any waypoints 
+				double time = segmentTimes[i-1]; //modify to be any waypoints
 				waypoint_ineq_const pon_ineq = vertices[i].ineq_constraint[j];
 				double toff = time - pon_ineq.timeOffset;
+				//Don't sample before the segment starts if the window is longer than the segment
+				if(toff < 0){ toff = 0; }
 				//std::cout << "End time " << time << std::endl;
 				while(toff < time){
 					//std::cout << "TIME OF CONSTRAINT " << toff << std::endl;
