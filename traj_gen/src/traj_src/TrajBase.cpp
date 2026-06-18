@@ -1,5 +1,6 @@
 #include <traj_gen/trajectory/TrajBase.h>
-#include <math.h>       
+#include <math.h>
+#include <algorithm>
 using namespace std;
 
 TrajBase::TrajBase()
@@ -316,25 +317,34 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	waypoint_ineq_const ineq_const_a;
 	Eigen::Vector4d numIneqCon = Eigen::VectorXd::Zero(4);
     std::cout << "done acceleartion " <<std::endl;
+	// Eq. (14): hold the acceleration within a (1+q) tolerance band of the
+	// terminal target finalAccel = (alpha*s3 - g*e3) over the approach window,
+	// so the contact attitude (b3 ~ s3) is largely established before impact
+	// (the quadrotor does not bounce off or clip the pad). Applied component-wise
+	// on x, y, z (decoupled per axis); yaw (index 3) is left free.
+	//   q     : magnitude tolerance / band width                       (eq. 14)
+	//   t_k   : window before impact, sampled at dt (= timeOffset)      (eq. 14)
+	//   q_eps : small additive slack so the band never collapses to a point when
+	//           a component of finalAccel is ~0 (e.g. the lateral axis at a 90 deg
+	//           target); this is the generalization of the old hard-coded +/-0.2.
+	// TODO: lift q, t_k, q_eps into configurable parameters.
+	double q = 0.5;
+	double t_k = 0.5;
+	double q_eps = 0.2;
 	Eigen::Vector4d lower_a = Eigen::VectorXd::Zero(4);
 	Eigen::Vector4d upper_a = Eigen::VectorXd::Zero(4);
-	lower_a[0] = finalAccel[0];
-	upper_a[0] = finalAccel[0] + 4;
-	lower_a[1] = finalAccel[1] -0.2;
-	upper_a[1] = finalAccel[1] +0.2;
-	numIneqCon[1] = 1;
-	numIneqCon[2] = 1;
-	lower_a[2] = finalAccel[2] ;
-	upper_a[2] = finalAccel[2] + 3;
-	
+	for (int k = 0; k < 3; k++) {
+		double a0 = finalAccel[k];
+		double a1 = (1.0 + q) * finalAccel[k];
+		lower_a[k] = std::min(a0, a1) - q_eps;
+		upper_a[k] = std::max(a0, a1) + q_eps;
+		numIneqCon[k] = 1;
+	}
+
 	//std::cout << "Set Accel " << finalAccel <<std::endl;
-		
+
 	ineq_const_a.derivOrder = 2;
-	// Approach window (seconds before contact) over which the terminal
-	// acceleration box is enforced on the final segment. In ROS 1 this value
-	// came from the per-waypoint "toff" parameter; set it explicitly here so
-	// the inequality is well defined (the field is no longer left uninitialized).
-	ineq_const_a.timeOffset = 0.5;
+	ineq_const_a.timeOffset = t_k;
 	ineq_const_a.lower = lower_a;
 	ineq_const_a.upper = upper_a;
 	ineq_const_a.InEqDim = numIneqCon;
