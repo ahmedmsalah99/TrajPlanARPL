@@ -318,14 +318,16 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
     std::cout << "done acceleartion " <<std::endl;
 	Eigen::Vector4d lower_a = Eigen::VectorXd::Zero(4);
 	Eigen::Vector4d upper_a = Eigen::VectorXd::Zero(4);
-	lower_a[0] = finalAccel[0];
-	upper_a[0] = finalAccel[0] + 4;
-	lower_a[1] = finalAccel[1] -0.2;
-	upper_a[1] = finalAccel[1] +0.2;
-	numIneqCon[1] = 1;
-	numIneqCon[2] = 1;
-	lower_a[2] = finalAccel[2] ;
-	upper_a[2] = finalAccel[2] + 3;
+	// Box the acceleration vector around the target on all three translational
+	// axes (x, y, z) over the approach window, so the full contact attitude is
+	// held during the approach rather than only on two axes. yaw (index 3) is
+	// left unconstrained. accel_margin is the (symmetric) half-width of the box.
+	double accel_margin = 0.5; // m/s^2  (TODO: parameterize / tune)
+	for (int k = 0; k < 3; k++) {
+		lower_a[k] = finalAccel[k] - accel_margin;
+		upper_a[k] = finalAccel[k] + accel_margin;
+		numIneqCon[k] = 1;
+	}
 	
 	//std::cout << "Set Accel " << finalAccel <<std::endl;
 		
