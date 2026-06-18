@@ -330,6 +330,11 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	//std::cout << "Set Accel " << finalAccel <<std::endl;
 		
 	ineq_const_a.derivOrder = 2;
+	// Approach window (seconds before contact) over which the terminal
+	// acceleration box is enforced on the final segment. In ROS 1 this value
+	// came from the per-waypoint "toff" parameter; set it explicitly here so
+	// the inequality is well defined (the field is no longer left uninitialized).
+	ineq_const_a.timeOffset = 0.5;
 	ineq_const_a.lower = lower_a;
 	ineq_const_a.upper = upper_a;
 	ineq_const_a.InEqDim = numIneqCon;

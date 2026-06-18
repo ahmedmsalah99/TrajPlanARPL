@@ -43,7 +43,6 @@ bool useRVIZ = false;
 bool replan = false;
 std::string vehicle_name;
 std::string odom;
-waypoint_ineq_const ineq_const;
 ros_cuboid_utils cube_map;
 Eigen::Matrix4d target;
 bool usePerch = false;
@@ -101,14 +100,6 @@ void init_params(){
 	subMap = node->create_subscription<ros_traj_gen_utils::msg::CuboidMap>(
 		"/vox_blox_map/graph", 10,
 		[](const ros_traj_gen_utils::msg::CuboidMap &msg){ cube_map.setListiner(msg); });
-	ineq_const.derivOrder = 0;
-	Eigen::Vector4d lower, upper,InEqDim;
-	lower << -2.0, -2.0, 0.0, 0;
-	upper << 2.0, 2.0, 2.0, 0;
-	InEqDim << 1.0, 1.0, 1.0, 0;
-	ineq_const.lower = lower;
-	ineq_const.upper = upper;
-	ineq_const.InEqDim = InEqDim;
 }
 
 
