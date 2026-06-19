@@ -221,6 +221,11 @@ int main(int argc, char** argv)
 		getParamOr<double>("impact_normal_vel", 1.0),
 		getParamOr<double>("impact_slide_vel", -3.0),
 		getParamOr<double>("min_pitch", 0.5));
+	//eq.(14) approach band
+	qp_traj.setPerchBand(
+		getParamOr<double>("perch_band_q", 0.5),
+		getParamOr<double>("perch_window", 0.5),
+		getParamOr<double>("perch_band_eps", 0.2));
 	//These values of 5 means that for a 1.7m distance gives around 5/3.4 or 1.5 ish time allocated.
 	TrajBase * traj;
 	double dt =0.01; //Handles the timer speed

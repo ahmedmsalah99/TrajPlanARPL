@@ -5,6 +5,10 @@ using namespace std;
 
 using namespace Eigen;
 
+// Named numeric constants (documented; not tuned via config).
+static constexpr double kFastSolveRegularization = 1e-3; // Tikhonov term added to Q in fastMTSolve for positive-definiteness
+static constexpr double kEmptyIneqBound = 0.1;           // trivial bound for the placeholder inequality row when no constraints exist
+
 QPpolyTraj::QPpolyTraj()
 {    	
 	dim =4;
@@ -99,7 +103,7 @@ Eigen::MatrixXd QPpolyTraj::fastMTSolve(int minDeriv)
     Eigen::MatrixXd C = Eigen::MatrixXd::Zero((numConstraint), coeffNum);
     Eigen::VectorXd d = Eigen::VectorXd::Zero(numConstraint);
    //generate object function
-   	Eigen::MatrixXd D = generateObjFun(minDeriv)+0.001*Eigen::MatrixXd::Identity(coeffNum, coeffNum);
+   	Eigen::MatrixXd D = generateObjFun(minDeriv)+kFastSolveRegularization*Eigen::MatrixXd::Identity(coeffNum, coeffNum);
 	Eigen::VectorXd g0 = Eigen::VectorXd::Zero(coeffNum);
 	ooqpei::OoqpEigenInterface solver();
 	for (int j = 0; j < dim; j++){
@@ -618,9 +622,9 @@ QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 	//std::cout <<"num constraints: " << numConst << std::endl;
 	if(numConst==0){
 		ineq_const.d= Eigen::VectorXd::Zero(1);
-		ineq_const.d(0) = -0.1;
+		ineq_const.d(0) = -kEmptyIneqBound;
 		ineq_const.f= Eigen::VectorXd::Zero(1);
-		ineq_const.f(0) = 0.1;
+		ineq_const.f(0) = kEmptyIneqBound;
 		ineq_const.C =  Eigen::MatrixXd::Zero(1, coeffNum);
 		return ineq_const;
 	}
@@ -891,9 +895,9 @@ QP_ineq_const QPpolyTraj::genInEqJointConstraint(){
 	sumConstraint+=add_joint_ineq_constr.d.rows();	
 	if(sumConstraint ==0){
 		joint_ineq_const.d= Eigen::VectorXd::Zero(1);
-		joint_ineq_const.d(0) = -0.1;
+		joint_ineq_const.d(0) = -kEmptyIneqBound;
 		joint_ineq_const.f= Eigen::VectorXd::Zero(1);
-		joint_ineq_const.f(0) = 0.1;
+		joint_ineq_const.f(0) = kEmptyIneqBound;
 		joint_ineq_const.C =  Eigen::MatrixXd::Zero(1, coeffNum*dim);
 		return joint_ineq_const;		
 	}

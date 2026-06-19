@@ -51,6 +51,10 @@ protected:
 	double impactNormalVel = 1.0;     // vS1: impact speed INTO the surface (m/s)
 	double impactSlideVel = -3.0;     // vS3: impact speed ALONG the surface, down-slope (m/s)
 	double minPitch = 0.5;            // inclination below this (rad) -> soft landing (zero impact velocity)
+	// eq.(14) approach-band parameters
+	double perchBandTol = 0.5;        // q   : (1+q) magnitude tolerance of the acceleration band
+	double perchWindow = 0.5;         // t_k : window before impact (s) over which the band is enforced
+	double perchBandEps = 0.2;        // small additive slack so the band never collapses to a point
 	bool constrainV = true;
 	float duration = 0.1;
 
@@ -99,6 +103,8 @@ public:
 	void calcPerchCond(Eigen::Matrix4d Rot);
 	//Configure perching parameters (maxInclinationAccel, vS1 into-surface, vS3 along-surface, min inclination rad)
 	void setPerchParams(double maxInclAccel, double normalVel, double slideVel, double minIncl);
+	//Configure the eq.(14) approach band (q tolerance, window t_k in s, eps slack)
+	void setPerchBand(double q, double window, double eps);
 
 	//Set Constraints
 	//pushes a waypoint into the list
