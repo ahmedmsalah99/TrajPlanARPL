@@ -337,10 +337,10 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	//   q_eps : small additive slack so the band never collapses to a point when
 	//           a component of finalAccel is ~0 (e.g. the lateral axis at a 90 deg
 	//           target); this is the generalization of the old hard-coded +/-0.2.
-	// TODO: lift q, t_k, q_eps into configurable parameters.
-	double q = 0.5;
-	double t_k = 0.5;
-	double q_eps = 0.2;
+	// q, t_k, q_eps are configurable via setPerchBand().
+	double q = perchBandTol;
+	double t_k = perchWindow;
+	double q_eps = perchBandEps;
 	Eigen::Vector4d lower_a = Eigen::VectorXd::Zero(4);
 	Eigen::Vector4d upper_a = Eigen::VectorXd::Zero(4);
 	for (int k = 0; k < 3; k++) {
@@ -391,6 +391,12 @@ void TrajBase::setPerchParams(double maxInclAccel, double normalVel, double slid
 	impactNormalVel = normalVel;
 	impactSlideVel = slideVel;
 	minPitch = minIncl;
+}
+
+void TrajBase::setPerchBand(double q, double window, double eps){
+	perchBandTol = q;
+	perchWindow = window;
+	perchBandEps = eps;
 }
 
 /*Virtual Stubs*/

@@ -14,6 +14,10 @@ traj_exe:
     impact_normal_vel: 1.0      # vS1: impact speed INTO the surface (m/s)
     impact_slide_vel: -3.0      # vS3: impact speed ALONG the surface, down-slope (m/s)
     min_pitch: 0.5              # inclination below this (rad) -> soft landing
+    # eq.(14) approach band (acceleration kept near the target before impact)
+    perch_band_q: 0.5           # (1+q) magnitude tolerance of the band
+    perch_window: 0.5           # window before impact (s) over which the band is enforced
+    perch_band_eps: 0.2         # additive slack so the band never collapses to a point
     # 4x4 target (row-major); 90 degree pitch interception by default:
     # row1: 0  0 -1 0
     # row2: 0  1  0 0
