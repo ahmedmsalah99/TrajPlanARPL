@@ -212,9 +212,15 @@ int main(int argc, char** argv)
 	std::vector<waypoint> * vertices;
 	rclcpp::sleep_for(1s);
 	QPpolyTraj qp_traj(4);
-	//Sets the Time with autogenerating time
-	qp_traj.limits[1] = 5;
-	qp_traj.limits[2] = 10;
+	//Dynamic limits used for time allocation (from config; defaults preserve prior behavior)
+	qp_traj.limits[1] = getParamOr<double>("v_max", 5.0);
+	qp_traj.limits[2] = getParamOr<double>("a_max", 10.0);
+	//Perching parameters (from config; defaults reproduce the original hard-coded values)
+	qp_traj.setPerchParams(
+		getParamOr<double>("max_inclination_accel", 4.0),
+		getParamOr<double>("impact_normal_vel", 1.0),
+		getParamOr<double>("impact_slide_vel", -3.0),
+		getParamOr<double>("min_pitch", 0.5));
 	//These values of 5 means that for a 1.7m distance gives around 5/3.4 or 1.5 ish time allocated.
 	TrajBase * traj;
 	double dt =0.01; //Handles the timer speed

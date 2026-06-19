@@ -6,6 +6,14 @@ traj_exe:
     visual: false            # use visual feedback from an apriltag
     replan: true             # perching uses online replanning
     display_2D: false        # publish 2D velocity/acceleration paths
+    # Dynamic limits used for time allocation
+    v_max: 5.0               # max velocity (m/s)
+    a_max: 10.0              # max acceleration (m/s^2)
+    # Perching parameters
+    max_inclination_accel: 4.0  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
+    impact_normal_vel: 1.0      # vS1: impact speed INTO the surface (m/s)
+    impact_slide_vel: -3.0      # vS3: impact speed ALONG the surface, down-slope (m/s)
+    min_pitch: 0.5              # inclination below this (rad) -> soft landing
     # 4x4 target (row-major); 90 degree pitch interception by default:
     # row1: 0  0 -1 0
     # row2: 0  1  0 0

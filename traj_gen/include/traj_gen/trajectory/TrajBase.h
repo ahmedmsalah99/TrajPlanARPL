@@ -46,9 +46,11 @@ protected:
 
 	//Generates the A and B matrix for a single dimension 
 	QP_constraint add_joint_eq_constr;
-	//Perching preset hyperparams
-	float force = 4.0;
-	Eigen::Vector4d impV;
+	//Perching preset hyperparams (defaults reproduce the original behavior)
+	double maxInclinationAccel = 4.0; // specific thrust (m/s^2) used at a vertical surface; scaled by sin(inclination)
+	double impactNormalVel = 1.0;     // vS1: impact speed INTO the surface (m/s)
+	double impactSlideVel = -3.0;     // vS3: impact speed ALONG the surface, down-slope (m/s)
+	double minPitch = 0.5;            // inclination below this (rad) -> soft landing (zero impact velocity)
 	bool constrainV = true;
 	float duration = 0.1;
 
@@ -95,6 +97,8 @@ public:
 	void calcPerchCond(double pitch);
 	bool genInEqFOV(double replan_time, Eigen::Vector3d target, Eigen::Vector4d pose, Eigen::Vector3d accel, QP_ineq_const * constraint);
 	void calcPerchCond(Eigen::Matrix4d Rot);
+	//Configure perching parameters (maxInclinationAccel, vS1 into-surface, vS3 along-surface, min inclination rad)
+	void setPerchParams(double maxInclAccel, double normalVel, double slideVel, double minIncl);
 
 	//Set Constraints
 	//pushes a waypoint into the list

@@ -271,45 +271,55 @@ void TrajBase::overideSolve(){
 
 //Given a Homogenous Transform and a forward Velocity how to convert to this system
 void TrajBase::calcPerchCond(Eigen::Matrix4d H){
-    double check = impV.norm();
 	int numPoint = vertices.size();
-	//Autoset the vector if it is not assigned first 
-	if((check) < 1e-3){
-		//Vs1,0,Vs3,0
-		impV << 1.0, 0.0 , -3.0, 0.0;
-	}
-	vertices[numPoint-1].setVel(impV);
-	//tangent opposite over adjuacnet 
-	//std::cout << H <<std::endl;
-	double norm = sqrt(H(0,2)*H(0,2)+H(1,2)*H(1,2));
-	double pitch = atan2(norm,H(2,2));
-	std::cout << "Pitch " << pitch <<std::endl;
-	if(abs(pitch) < 0.5 ){
-		Eigen::VectorXd zeroV(4);
-		zeroV << 0,0,0,0;
-		vertices[numPoint-1].setVel(zeroV);
+
+	// Surface normal s3 (outward), in the world frame = 3rd column of the target
+	// rotation. e3 is world-up. The inclination is the angle between s3 and e3.
+	Eigen::Vector3d s3(H(0,2), H(1,2), H(2,2));
+	Eigen::Vector3d e3(0.0, 0.0, 1.0);
+	double cos_incl = s3.dot(e3);                       // = cos(inclination) = s3_z
+	double sin_incl = sqrt(s3(0)*s3(0) + s3(1)*s3(1));  // horizontal length of s3 = sin(inclination)
+
+	// Guard: an upside-down / overhanging pad (normal points below horizontal)
+	// would require thrusting downward, which a quadrotor cannot do. Warn and
+	// clamp to a vertical surface rather than emit an infeasible target.
+	if(cos_incl < 0.0){
+		std::cout << "WARNING calcPerchCond: target normal points downward (s3.e3 < 0); "
+		          << "clamping to a vertical surface." << std::endl;
+		s3(2) = 0.0;
+		double h = s3.head<2>().norm();
+		if(h > 1e-9){ s3.head<2>() /= h; }
+		cos_incl = 0.0;
+		sin_incl = 1.0;
 	}
 
-	std::cout << " number of vertice " << numPoint <<std::endl;
-    double force = 4.0*sin(pitch);
-	//std::cout << "Number of points" <<numPoint <<std::endl;
-	Eigen::VectorXd pos1;
-	Eigen::VectorXd pos2; 
-	Eigen::VectorXd finalAccel = Eigen::VectorXd::Zero(4);
-	waypoint lastWaypoint = vertices[numPoint-1];
-	waypoint seclastWay = vertices[numPoint - 2];
-	std::cout << "initial calc " <<std::endl;
-    lastWaypoint.getPos(&pos1);
-	seclastWay.getPos(&pos2);
-	//Set the acceleration based on the 3rd vector of the target
-	finalAccel[0] = H(0,2)*force;
-	finalAccel[1] = H(1,2)*force;
-	//DO NOT LET THE PERCHING TILT PAST 90 Degrees
-	if(H(2,2) <0){
-		H(2,2) = 0;
+	// Terminal specific-thrust magnitude (eq. 12): scaled from 0 (flat) up to
+	// maxInclinationAccel (vertical) by the inclination factor sin(inclination).
+	double force = maxInclinationAccel * sin_incl;
+
+	// Impact velocity built in the surface frame so it generalizes to any
+	// orientation: a component INTO the surface (-s3, magnitude impactNormalVel = vS1)
+	// plus a component ALONG the surface, down-slope (t_up, magnitude impactSlideVel = vS3).
+	Eigen::Vector4d impVel = Eigen::Vector4d::Zero();
+	double incl_angle = atan2(sin_incl, cos_incl); // inclination angle in [0, pi/2]
+	if(incl_angle >= minPitch){
+		Eigen::Vector3d t_up = e3 - cos_incl * s3;  // world-up projected into the surface plane
+		double tn = t_up.norm();
+		if(tn > 1e-9){ t_up /= tn; }
+		Eigen::Vector3d v = impactNormalVel * (-s3) + impactSlideVel * t_up;
+		impVel(0) = v(0);
+		impVel(1) = v(1);
+		impVel(2) = v(2);
+		impVel(3) = 0.0; // yaw rate
 	}
-	finalAccel[2] = H(2,2)*force -9.81;
-    std::cout << "set acceleration " <<std::endl;
+	// else: too flat -> soft landing (zero impact velocity)
+	vertices[numPoint-1].setVel(impVel);
+
+	// Terminal acceleration so that b3 = s3 at contact (eq. 12): xdd = force*s3 - g*e3.
+	Eigen::VectorXd finalAccel = Eigen::VectorXd::Zero(4);
+	finalAccel[0] = s3(0) * force;
+	finalAccel[1] = s3(1) * force;
+	finalAccel[2] = s3(2) * force - 9.81;
 	vertices[numPoint-1].setAccel(finalAccel);
 	//vertices[numPoint-1].setJerk(Eigen::VectorXd::Zero(4));
 	//vertices[numPoint-1].setSnap(Eigen::VectorXd::Zero(4));
@@ -367,13 +377,20 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	//set no velocity if our pitch angle is low 
 }
 
-//Simple calculation for X aligned perching 
+//Simple calculation for X aligned perching
 void TrajBase::calcPerchCond(double pitch){
 	Eigen::Matrix4d H;
 	H(0,2) = -1*sin(pitch);
 	H(1,2) = 0;
 	H(2,2) = cos(pitch);
 	calcPerchCond(H);
+}
+
+void TrajBase::setPerchParams(double maxInclAccel, double normalVel, double slideVel, double minIncl){
+	maxInclinationAccel = maxInclAccel;
+	impactNormalVel = normalVel;
+	impactSlideVel = slideVel;
+	minPitch = minIncl;
 }
 
 /*Virtual Stubs*/
