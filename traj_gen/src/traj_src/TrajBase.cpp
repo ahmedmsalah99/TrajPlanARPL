@@ -399,6 +399,10 @@ void TrajBase::setPerchBand(double q, double window, double eps){
 	perchBandEps = eps;
 }
 
+void TrajBase::setFovCamTilt(double tilt){
+	fovCamTilt = tilt;
+}
+
 /*Virtual Stubs*/
 
 
@@ -413,7 +417,7 @@ bool TrajBase::genInEqFOV(double replan_time, Eigen::Vector3d target, 	Eigen::Ve
 	ineq_const.C = Eigen::MatrixXd::Zero(4, coeffNum*dim);
 	Eigen::MatrixXd const_conv =  Eigen::MatrixXd::Zero(6, coeffNum*dim);
 	//std::cout << " fov start " <<std::endl;
-        FOV_constraint fov(pose, accel);
+        FOV_constraint fov(pose, accel, fovCamTilt);
         //std::cout << " start derovative fov " <<std::endl;
 	fov_constr constr = fov.derivative_FOV(target);
 	//SGD Bound check to see if it is 

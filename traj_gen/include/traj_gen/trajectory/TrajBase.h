@@ -55,6 +55,7 @@ protected:
 	double perchBandTol = 0.5;        // q   : (1+q) magnitude tolerance of the acceleration band
 	double perchWindow = 0.5;         // t_k : window before impact (s) over which the band is enforced
 	double perchBandEps = 0.2;        // small additive slack so the band never collapses to a point
+	double fovCamTilt = 0.25;         // FOV camera mount tilt (rad)
 	bool constrainV = true;
 	float duration = 0.1;
 
@@ -105,6 +106,8 @@ public:
 	void setPerchParams(double maxInclAccel, double normalVel, double slideVel, double minIncl);
 	//Configure the eq.(14) approach band (q tolerance, window t_k in s, eps slack)
 	void setPerchBand(double q, double window, double eps);
+	//Configure the FOV camera mount tilt (rad)
+	void setFovCamTilt(double tilt);
 
 	//Set Constraints
 	//pushes a waypoint into the list
