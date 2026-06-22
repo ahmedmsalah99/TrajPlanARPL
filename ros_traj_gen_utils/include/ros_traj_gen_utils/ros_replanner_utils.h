@@ -26,8 +26,12 @@ int fullStop = 0.0;
 int curr_v =0;
 //NEW PLAN WHAT IS A GOOD IDEA HERE
 //Target updates
-bool visualFeedback = false; 
+bool visualFeedback = false;
 bool fovEnable = false;
+//Replanner retry tuning (set from config; defaults preserve prior behavior)
+double retryStep = 0.2;   // seconds added to segment time(s) per failed solve
+int retryMax = 10;        // max solve retries before giving up / reverting
+double minSegTime = 0.5;  // segments shorter than this are merged/skipped
 public:
 ros_replan_utils();
 
@@ -48,6 +52,8 @@ bool replan(int degreeOpt, double t_elap, double t_off);
 bool replan(int degreeOpt, double t_elap, double t_off, Eigen::Matrix4d Target);
 void setFOVEnable(bool in);
 void setTime(std::vector<double> times_in);
+//Configure retry tuning (step seconds, max retries, min segment time)
+void setReplanParams(double step, int maxRetries, double minSeg);
 
 };
 #endif

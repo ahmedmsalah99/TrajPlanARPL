@@ -47,6 +47,12 @@ ros_cuboid_utils cube_map;
 Eigen::Matrix4d target;
 bool usePerch = false;
 bool useVisual = false;
+//Replanner timing/retry tuning (read from config in init_params)
+double g_replan_time = 0.04;
+double g_replan_t_off = 0.05;
+double g_replan_retry_step = 0.2;
+int g_replan_retry_max = 10;
+double g_replan_min_seg = 0.5;
 
 // Helper to declare (once) and fetch a parameter with a default.
 template <typename T>
@@ -100,6 +106,12 @@ void init_params(){
 	subMap = node->create_subscription<ros_traj_gen_utils::msg::CuboidMap>(
 		"/vox_blox_map/graph", 10,
 		[](const ros_traj_gen_utils::msg::CuboidMap &msg){ cube_map.setListiner(msg); });
+	//Replanner timing/retry tuning (defaults preserve prior behavior)
+	g_replan_time = getParamOr<double>("replan_time", 0.04);
+	g_replan_t_off = getParamOr<double>("replan_t_off", 0.05);
+	g_replan_retry_step = getParamOr<double>("replan_retry_step", 0.2);
+	g_replan_retry_max = getParamOr<int>("replan_retry_max", 10);
+	g_replan_min_seg = getParamOr<double>("replan_min_seg", 0.5);
 }
 
 
@@ -120,6 +132,7 @@ void visualize_paths(TrajBase * traj ){
 
 void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * controller, TrajBase * traj){
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, false);
+	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
 	if(usePerch){
 		std::cout << target <<std::endl;
 		replanner.initialPlan(3, target);
@@ -147,6 +160,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	//std::cout << "number of vertices" <<vertices->size() <<std::endl;
 	std::cout << "preparation initial plan " <<std::endl;
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, useVisual);
+	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
 	if(usePerch){
 		replanner.initialPlan(3, target);
 	}
@@ -161,7 +175,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	srv_transition_->async_send_request(transition_cmd);
 	controller->startFlight(traj_use);
 	double t0 = node->now().seconds() ;
-	double replan_time = 0.04;
+	double replan_time = g_replan_time;
 	double time_plan = 0;
 	std::cout << "TIME Start Flight " << node->now().seconds() <<std::endl;
 	while(controller->getState() != HOVER && rclcpp::ok()){
@@ -180,11 +194,11 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 			if(useVisual){
 				Eigen::Matrix4d H;
 				if(aprilListen.getLanding(&H)){
-					replan_success = replanner.replan(4,time_plan,0.05,H);
+					replan_success = replanner.replan(4,time_plan,g_replan_t_off,H);
 				}
 			}
 			else{
-				replan_success = replanner.replan(4, time_plan, 0.05);
+				replan_success = replanner.replan(4, time_plan, g_replan_t_off);
 			}
 			//std::cout << "replan end" <<std::endl;
 			if (replan_success){

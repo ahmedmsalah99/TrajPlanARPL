@@ -18,6 +18,12 @@ traj_exe:
     perch_band_q: 0.5           # (1+q) magnitude tolerance of the band
     perch_window: 0.5           # window before impact (s) over which the band is enforced
     perch_band_eps: 0.2         # additive slack so the band never collapses to a point
+    # Replanner timing / retry
+    replan_time: 0.04           # replanning period (s)
+    replan_t_off: 0.05          # look-ahead offset used when re-anchoring the plan (s)
+    replan_retry_step: 0.2      # seconds added to segment time(s) per failed solve
+    replan_retry_max: 10        # max solve retries before giving up / reverting
+    replan_min_seg: 0.5         # segments shorter than this (s) are merged/skipped
     # 4x4 target (row-major, given for perching manually):
     # row1: 0  0 -1 0
     # row2: 0  1  0 0

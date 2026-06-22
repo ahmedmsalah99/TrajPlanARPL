@@ -71,11 +71,11 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 	while (!(trajectory->checkSolved())){
 		for(int i = 0; i < trajectory->segmentTimes.size();i++){
-			trajectory->segmentTimes[i] +=0.2;
+			trajectory->segmentTimes[i] +=retryStep;
 		}
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
-		if(count == 10){
+		if(count == retryMax){
 			std::cout << " could not plan flight" << std::endl;
 			return false;
 		}
@@ -109,11 +109,11 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 	while (!(trajectory->checkSolved())){
 		for(int i = 0; i < trajectory->segmentTimes.size();i++){
-			trajectory->segmentTimes[i] +=0.2;
+			trajectory->segmentTimes[i] +=retryStep;
 		}
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
-		if(count == 10){
+		if(count == retryMax){
 			std::cout << " could not plan flight" << std::endl;
 			return false;
 		}
@@ -207,15 +207,16 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 
 	segmentTimes[curr_v]-=(t_elap);
 
-	if((curr_v == future_v.size()-1)&&(segmentTimes[curr_v] < 0.5)){
+	const double kSegMergeEps = 0.0015; // tiny slack when merging a consumed segment's time
+	if((curr_v == future_v.size()-1)&&(segmentTimes[curr_v] < minSegTime)){
 		curr_v+=1;
 		return false;
 	}
 
-	if(segmentTimes[curr_v] < 0.5){
+	if(segmentTimes[curr_v] < minSegTime){
 		curr_v+=1;
-		//consume  the previous segments time if it is less than half a second 
-		segmentTimes[curr_v]+=(segmentTimes[curr_v-1])+0.0015;
+		//consume  the previous segments time if it is less than the minimum segment time
+		segmentTimes[curr_v]+=(segmentTimes[curr_v-1])+kSegMergeEps;
 	}
 	//Clear the last trajectories
 	trajectory->clearAll();
@@ -311,10 +312,10 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	//std::cout << "End SM Solve" <<std::endl;
 	while (!trajectory->checkSolved()){
 		//std::cout << "REPLAN NEED MORE TIME" <<std::endl;
-		trajectory->segmentTimes[curr_v] +=0.2;
+		trajectory->segmentTimes[curr_v] +=retryStep;
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
-		if(count == 10){
+		if(count == retryMax){
 			//revert to previous trajectory 
 			trajectory->overideSolve();
 			trajectory->vertices = vertices_prev;
@@ -330,4 +331,10 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 
 void ros_replan_utils::setFOVEnable(bool in){
 	fovEnable = in;
+}
+
+void ros_replan_utils::setReplanParams(double step, int maxRetries, double minSeg){
+	retryStep = step;
+	retryMax = maxRetries;
+	minSegTime = minSeg;
 }
