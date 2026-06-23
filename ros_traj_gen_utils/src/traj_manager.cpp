@@ -33,7 +33,7 @@ apriltag_utils aprilListen;
 rclcpp::Client<trackers_msgs::srv::Transition>::SharedPtr srv_transition_;
 rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr hover_;
 rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subOdomMsg;
-rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr subApril;
+rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr subApril;
 
 odom_utils odomListiner;
 static const std::string line_tracker_min_jerk("std_trackers/LineTrackerMinJerkAction");
@@ -85,9 +85,9 @@ void init_params(){
 	pubQP = node->create_publisher<nav_msgs::msg::Path>("/"+vehicle_name+"/trackers_manager/qp_tracker/qp_trajectory_pos", 10);
 	visual_vel_pub_ = node->create_publisher<nav_msgs::msg::Path>("/"+vehicle_name+"/trackers_manager/qp_tracker/qp_trajectory_vel", 10);
 	visual_acc_pub_ = node->create_publisher<nav_msgs::msg::Path>("/"+vehicle_name+"/trackers_manager/qp_tracker/qp_trajectory_acc", 10);
-	subApril = node->create_subscription<geometry_msgs::msg::PoseArray>(
-		"/tag_detections_pose", 10,
-		[](const geometry_msgs::msg::PoseArray &msg){ aprilListen.aprilListen(msg); });
+	subApril = node->create_subscription<geometry_msgs::msg::PoseStamped>(
+		"/tags_features_extractor/tag_pose", 10,
+		[](const geometry_msgs::msg::PoseStamped &msg){ aprilListen.aprilListen(msg); });
 
 	subWaypoint = node->create_subscription<nav_msgs::msg::Path>(
 		vehicle_name+"/waypoints", 10,

@@ -7,6 +7,7 @@
 //#include <ros_traj_gen_utils/msg/april_tag_detection.hpp> // message
 //#include <ros_traj_gen_utils/msg/april_tag_detection_array.hpp> // message
 #include <geometry_msgs/msg/pose_array.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <traj_gen/traj_utils/quaternion.h>
 #include <string>
 // Toolbox for encoding and decoding StandardTrajectories into ROS messages, and possibly other features
@@ -31,7 +32,7 @@ rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr aprilOdomSub;
 rclcpp::Node::SharedPtr node_;
 nav_msgs::msg::Odometry current_heading;
 //PREVIOUS POSE ARRAY
-geometry_msgs::msg::PoseArray current_target;
+geometry_msgs::msg::PoseStamped current_target;
 Eigen::Matrix4d H_RC;
 Eigen::Matrix4d H_TAG;
 //Timer Function to stuff the cricle buffer
@@ -45,7 +46,7 @@ void setNode(rclcpp::Node::SharedPtr node);
 //its x-axis (rad), and the tag->target translation offset.
 void setExtrinsics(const Eigen::Vector3d& camTranslation, double camTilt, const Eigen::Vector3d& tagTranslation);
 //Takes a stdTrajectory MSG and stores it in the private trajectory variable
-void aprilListen(const geometry_msgs::msg::PoseArray &msg);
+void aprilListen(const geometry_msgs::msg::PoseStamped &msg);
 void syncCallback(const geometry_msgs::msg::PoseArray &msg1,const nav_msgs::msg::Odometry &msg2);
 bool getLanding(joint_pose * pointer_in); //returns false if failed to detect perch
 bool getLanding(Eigen::Matrix4d * pointer_in); //returns false if failed to detect perch

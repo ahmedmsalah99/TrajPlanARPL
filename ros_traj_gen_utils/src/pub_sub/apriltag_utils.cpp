@@ -78,11 +78,8 @@ void apriltag_utils::sub_odom(std::string odom_topic){
 }
 
 //Takes the apriltage detection message and stores it in a perch_constraint  format
-void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseArray &msg){
-	//If no detections exit 
-	if (msg.poses.size()==0){
-		return;
-	}
+void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseStamped &msg){
+	
 	//if buffer isn't full return 
 	if ((circle_start+1)!=circle_end){
 		return;
@@ -130,7 +127,7 @@ bool apriltag_utils::getLanding(Eigen::Matrix4d * pointer_in){
 		//std::cout << "Succesful Read" <<std::endl;
 		joint_pose comb_pose;
 		comb_pose.quad =  current_heading;
-		comb_pose.target = current_target.poses[0];
+		comb_pose.target = current_target.pose;
 		*pointer_in = WorldRot(comb_pose);
 		/*std::cout << " Current quadrotor " <<std::endl;
 		std::cout << current_heading.header.stamp <<std::endl;
@@ -151,7 +148,7 @@ bool apriltag_utils::getLanding(Eigen::Matrix4d * pointer_in, nav_msgs::msg::Odo
 		//std::cout << "Succesful Read" <<std::endl;
 		joint_pose comb_pose;
 		comb_pose.quad =  current_heading;
-		comb_pose.target = current_target.poses[0];
+		comb_pose.target = current_target.pose;
 		*pointer_in = WorldRot(comb_pose);
 		//msg2->header  = current_target.header;
 		//std::cout << " Current difference " <<std::endl;
@@ -189,7 +186,7 @@ bool apriltag_utils::getLanding(joint_pose * pointer_in){
 		//aprilOdomSub.shutdown();
 		//std::cout << "Succesful Read" <<std::endl;
 		pointer_in->quad =  current_heading;
-		pointer_in->target = current_target.poses[0];
+		pointer_in->target = current_target.pose;
 		//aprilOdomSub = nh.subscribe(topic_name, 1, &odom_utils::outputListiner, &odom_l);
 		return true;
 	}
