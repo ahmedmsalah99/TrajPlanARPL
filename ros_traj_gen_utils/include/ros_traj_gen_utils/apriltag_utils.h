@@ -28,7 +28,6 @@ int circle_end = BUFFER_SIZE-1;
 nav_msgs::msg::Odometry odom_buffer[BUFFER_SIZE];
 rclcpp::TimerBase::SharedPtr timer;
 odom_utils odom_l;
-rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr aprilOdomSub;
 rclcpp::Node::SharedPtr node_;
 nav_msgs::msg::Odometry current_heading;
 //PREVIOUS POSE ARRAY
@@ -51,7 +50,8 @@ void syncCallback(const geometry_msgs::msg::PoseArray &msg1,const nav_msgs::msg:
 bool getLanding(joint_pose * pointer_in); //returns false if failed to detect perch
 bool getLanding(Eigen::Matrix4d * pointer_in); //returns false if failed to detect perch
 bool getLanding(Eigen::Matrix4d * pointer_in, nav_msgs::msg::Odometry * msg2); //returns false if failed to detect perch
-void sub_odom(std::string topic_name);
+//Feed the latest odometry (from the main odom callback) into the buffer pipeline
+void updateOdom(const nav_msgs::msg::Odometry &msg);
 Eigen::Matrix4d WorldRot(joint_pose pose);
 //Convert Homogenous transform to odometry for publishing
 static nav_msgs::msg::Odometry convertMsg(Eigen::Matrix4d H, nav_msgs::msg::Odometry header);

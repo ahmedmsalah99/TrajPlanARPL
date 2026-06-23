@@ -35,6 +35,10 @@ void apriltag_utils::setExtrinsics(const Eigen::Vector3d& camTranslation, double
 
 void apriltag_utils::setNode(rclcpp::Node::SharedPtr node){
 	node_ = node;
+	// Buffer-filling timer, created once at start: samples the latest odometry
+	// (fed via updateOdom) into the circular buffer for time-syncing detections.
+	timer = node_->create_wall_timer(std::chrono::milliseconds(10),
+		std::bind(&apriltag_utils::timerCallback, this));
 }
 
 void apriltag_utils::timerCallback()
@@ -68,13 +72,10 @@ void apriltag_utils::timerCallback()
 	}
 }
 
-void apriltag_utils::sub_odom(std::string odom_topic){
-	//std::cout << "SUbscibed " <<odom_topic <<std::endl;
-	aprilOdomSub = node_->create_subscription<nav_msgs::msg::Odometry>(
-		odom_topic, rclcpp::QoS(1),
-		[this](const nav_msgs::msg::Odometry &msg){ odom_l.outputListiner(msg); });
-	timer = node_->create_wall_timer(std::chrono::milliseconds(10),
-		std::bind(&apriltag_utils::timerCallback, this));
+void apriltag_utils::updateOdom(const nav_msgs::msg::Odometry &msg){
+	// Store the latest odometry; the startup timer samples it into the circular
+	// buffer. Fed from the main odom callback (no dedicated subscription needed).
+	odom_l.outputListiner(msg);
 }
 
 //Takes the apriltage detection message and stores it in a perch_constraint  format

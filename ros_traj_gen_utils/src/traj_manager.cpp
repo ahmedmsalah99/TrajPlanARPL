@@ -149,11 +149,12 @@ void init_params(){
 	auto best_effort_qos = rclcpp::QoS(1).best_effort();
 	subOdomMsg = node->create_subscription<px4_msgs::msg::VehicleOdometry>(
 		odom_topic, best_effort_qos,
-		[](const px4_msgs::msg::VehicleOdometry &msg){ 
+		[](const px4_msgs::msg::VehicleOdometry &msg){
 			nav_msgs::msg::Odometry odom =
         	vehicleOdometryToRosOdometry(msg);
-			
-			odomListiner.outputListiner(odom); 
+
+			odomListiner.outputListiner(odom);
+			aprilListen.updateOdom(odom);
 			});
 	subMap = node->create_subscription<ros_traj_gen_utils::msg::CuboidMap>(
 		"/vox_blox_map/graph", 10,
