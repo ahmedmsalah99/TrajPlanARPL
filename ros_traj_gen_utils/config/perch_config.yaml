@@ -27,6 +27,10 @@ traj_exe:
     # Field-of-view constraint
     fov_cam_tilt: 0.25          # camera mount tilt (rad) of the optical axis from the thrust axis
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
+    # Camera / tag extrinsics (used in visual perching)
+    cam_translation: [0.3, 0.0, 0.0]   # camera position offset in the body frame (m)
+    cam_tilt: 0.0                       # camera tilt about its x-axis (rad); ~ -0.25 (-14 deg) on the real rig
+    tag_translation: [0.0, 0.0, 0.0]    # tag -> target translation offset (m)
     # 4x4 target (row-major); 90 degree pitch interception by default:
     # row1: 0  0 -1 0
     # row2: 0  1  0 0
