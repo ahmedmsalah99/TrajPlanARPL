@@ -54,7 +54,7 @@ double g_replan_t_off = 0.05;
 double g_replan_retry_step = 0.2;
 int g_replan_retry_max = 10;
 double g_replan_min_seg = 0.5;
-bool g_fov_enable = false;
+bool g_fov_enable = true;
 
 // Helper to declare (once) and fetch a parameter with a default.
 template <typename T>
@@ -164,7 +164,7 @@ void init_params(){
 	g_replan_retry_step = getParamOr<double>("replan_retry_step", 0.2);
 	g_replan_retry_max = getParamOr<int>("replan_retry_max", 10);
 	g_replan_min_seg = getParamOr<double>("replan_min_seg", 0.5);
-	g_fov_enable = getParamOr<bool>("fov_enable", false);
+	g_fov_enable = getParamOr<bool>("fov_enable", true);
 }
 
 

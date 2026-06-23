@@ -25,7 +25,7 @@ traj_exe:
     replan_retry_max: 10        # max solve retries before giving up / reverting
     replan_min_seg: 0.5         # segments shorter than this (s) are merged/skipped
     # Field-of-view constraint
-    fov_enable: false           # add the FOV inequality (keep the target in view) during replanning
+    fov_enable: true            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
     # Camera / tag extrinsics (used in visual perching)
     cam_translation: [0.3, 0.0, 0.0]   # camera position offset in the body frame (m)
