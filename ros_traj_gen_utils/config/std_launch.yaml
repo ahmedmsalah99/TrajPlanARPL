@@ -24,6 +24,8 @@ traj_exe:
     replan_retry_step: 0.2      # seconds added to segment time(s) per failed solve
     replan_retry_max: 10        # max solve retries before giving up / reverting
     replan_min_seg: 0.5         # segments shorter than this (s) are merged/skipped
+    # Field-of-view constraint
+    fov_cam_tilt: 0.25          # camera mount tilt (rad) of the optical axis from the thrust axis
     # 4x4 target (row-major, given for perching manually):
     # row1: 0  0 -1 0
     # row2: 0  1  0 0
