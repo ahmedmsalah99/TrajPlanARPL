@@ -69,10 +69,13 @@ void init_params(){
 	//Camera/tag extrinsics (calibration); defaults reproduce the original values.
 	std::vector<double> cam_t = getParamOr<std::vector<double>>("cam_translation", std::vector<double>{0.3, 0.0, 0.0});
 	std::vector<double> tag_t = getParamOr<std::vector<double>>("tag_translation", std::vector<double>{0.0, 0.0, 0.0});
-	double cam_tilt = getParamOr<double>("cam_tilt", 0.0);
+	double cam_tilt = getParamOr<double>("cam_tilt", 0.25);
 	Eigen::Vector3d camTrans = (cam_t.size() >= 3) ? Eigen::Vector3d(cam_t[0], cam_t[1], cam_t[2]) : Eigen::Vector3d(0.3, 0.0, 0.0);
 	Eigen::Vector3d tagTrans = (tag_t.size() >= 3) ? Eigen::Vector3d(tag_t[0], tag_t[1], tag_t[2]) : Eigen::Vector3d(0.0, 0.0, 0.0);
-	aprilListen.setExtrinsics(camTrans, cam_tilt, tagTrans);
+	// cam_tilt is the single camera-tilt knob (also used by the FOV optical axis).
+	// The apriltag extrinsic uses the opposite sign convention (documented rig
+	// rot2 = Rx(-tilt)), so negate it here.
+	aprilListen.setExtrinsics(camTrans, -cam_tilt, tagTrans);
 
 	vehicle_name = getParamOr<std::string>("device", std::string(""));
 	useVisual = getParamOr<bool>("visual", false);
@@ -247,8 +250,8 @@ int main(int argc, char** argv)
 		getParamOr<double>("perch_band_q", 0.5),
 		getParamOr<double>("perch_window", 0.5),
 		getParamOr<double>("perch_band_eps", 0.2));
-	//FOV camera mount tilt (rad)
-	qp_traj.setFovCamTilt(getParamOr<double>("fov_cam_tilt", 0.25));
+	//FOV camera mount tilt (rad) -- shared cam_tilt knob
+	qp_traj.setFovCamTilt(getParamOr<double>("cam_tilt", 0.25));
 	qp_traj.setFovMargin(getParamOr<double>("fov_margin", 0.0));
 	//These values of 5 means that for a 1.7m distance gives around 5/3.4 or 1.5 ish time allocated.
 	TrajBase * traj;
