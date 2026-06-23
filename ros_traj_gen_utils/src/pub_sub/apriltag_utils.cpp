@@ -2,35 +2,35 @@
 using namespace std;
 
 apriltag_utils::apriltag_utils(){
-	Eigen::Matrix3d rot1;
-	Eigen::Matrix3d rot2;
+	// Defaults reproduce the original hard-coded extrinsics (camera 0.3 m forward,
+	// no tilt, no tag translation offset). Override via setExtrinsics() from config.
+	setExtrinsics(Eigen::Vector3d(0.3, 0.0, 0.0), 0.0, Eigen::Vector3d(0.0, 0.0, 0.0));
+}
+
+// Build the camera-in-body transform H_RC and the tag->target transform H_TAG.
+//  - H_RC rotation = fixed axis convention (rot1) tilted about the camera x-axis by
+//    camTilt (the old commented "rotx -14 deg"; ~ -0.25 rad on the real rig).
+//  - camTranslation is the camera position offset in the body frame.
+//  - H_TAG rotation is a fixed convention; tagTranslation is its translation offset.
+void apriltag_utils::setExtrinsics(const Eigen::Vector3d& camTranslation, double camTilt,
+                                   const Eigen::Vector3d& tagTranslation){
+	Eigen::Matrix3d rot1 = Eigen::Matrix3d::Zero();
+	rot1(0,2) = 1;
+	rot1(1,0) = -1;
+	rot1(2,1) = -1;
+	Eigen::Matrix3d rotTilt = Eigen::AngleAxisd(camTilt, Eigen::Vector3d::UnitX()).toRotationMatrix();
+
+	H_RC = Eigen::Matrix4d::Zero();
+	H_RC.block<3,3>(0,0) = rot1 * rotTilt;
+	H_RC.block<3,1>(0,3) = camTranslation;
+	H_RC(3,3) = 1;
+
 	H_TAG = Eigen::Matrix4d::Zero();
 	H_TAG(0,1) = -1;
 	H_TAG(1,0) = 1;
 	H_TAG(2,2) = 1;
+	H_TAG.block<3,1>(0,3) = tagTranslation;
 	H_TAG(3,3) = 1;
-	//H_TAG(0,3) = -0.31;
-	//H_TAG(1,3) = -0.02; //beforehand -0.07 Negative higher on pad positive lower seriously
-	//Translation 
-	H_RC = Eigen::Matrix4d::Zero();
-	rot1(0,2) = 1;
-	rot1(1,0) = -1;
-	rot1(2,1) = -1;
-	/*Rotx -10
-	rot2(0,0) = 1;
-	rot2(1,1) = 0.9848;
-	rot2(1,2) = 0.1736483;
-	rot2(2,1) = -0.1736483;
-	rot2(2,2) = 0.9848;*/
-	/* rotx -14 degs*/
-	rot2(0,0) = 1;
-	rot2(1,1) = 0.9689124;
-	rot2(1,2) = 0.2474040;
-	rot2(2,1) = -0.2474040;
-	rot2(2,2) = 0.9689124;
-	H_RC.block<3,3>(0,0) = rot1;//*rot2;
-	H_RC(0,3)=0.3;//0.015 not tag simulator
-	H_RC(3,3)=1;
 }
 
 void apriltag_utils::setNode(rclcpp::Node::SharedPtr node){
