@@ -15,6 +15,7 @@
 #include <ros_traj_gen_utils/ros_replanner_utils.h>
 #include <trackers_msgs/srv/transition.hpp>
 #include <std_srvs/srv/trigger.hpp>
+#include <px4_msgs/msg/vehicle_odometry.hpp>
 
 using namespace std;
 using namespace std::chrono_literals;
@@ -32,7 +33,7 @@ apriltag_utils aprilListen;
 
 rclcpp::Client<trackers_msgs::srv::Transition>::SharedPtr srv_transition_;
 rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr hover_;
-rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr subOdomMsg;
+rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr subOdomMsg;
 rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr subApril;
 
 odom_utils odomListiner;
@@ -61,6 +62,40 @@ static T getParamOr(const std::string& name, const T& def){
 		node->declare_parameter<T>(name, def);
 	}
 	return node->get_parameter(name).get_value<T>();
+}
+nav_msgs::msg::Odometry vehicleOdometryToRosOdometry(
+    const px4_msgs::msg::VehicleOdometry &px4_msg)
+{
+    nav_msgs::msg::Odometry odom;
+
+    // Timestamp
+    odom.header.stamp = rclcpp::Time(px4_msg.timestamp * 1000ULL);
+    odom.header.frame_id = "odom";
+    odom.child_frame_id = "base_link";
+
+    // NED -> ENU
+    odom.pose.pose.position.x = px4_msg.position[1];   // East
+    odom.pose.pose.position.y = px4_msg.position[0];   // North
+    odom.pose.pose.position.z = -px4_msg.position[2];  // Up
+
+    // Quaternion
+    // PX4 stores [w, x, y, z]
+    odom.pose.pose.orientation.w = px4_msg.q[0];
+    odom.pose.pose.orientation.x = px4_msg.q[1];
+    odom.pose.pose.orientation.y = px4_msg.q[2];
+    odom.pose.pose.orientation.z = px4_msg.q[3];
+
+    // Linear velocity NED -> ENU
+    odom.twist.twist.linear.x = px4_msg.velocity[1];
+    odom.twist.twist.linear.y = px4_msg.velocity[0];
+    odom.twist.twist.linear.z = -px4_msg.velocity[2];
+
+    // Angular velocity
+    odom.twist.twist.angular.x = px4_msg.angular_velocity[0];
+    odom.twist.twist.angular.y = px4_msg.angular_velocity[1];
+    odom.twist.twist.angular.z = px4_msg.angular_velocity[2];
+
+    return odom;
 }
 
 void init_params(){
@@ -109,10 +144,16 @@ void init_params(){
 		usePerch = true;
 		std::cout << " WE ARE USING A TARGET " << target <<std::endl;
 	}
-	std::string odom_topic = vehicle_name+odom_frame;
-	subOdomMsg = node->create_subscription<nav_msgs::msg::Odometry>(
-		odom_topic, 10,
-		[](const nav_msgs::msg::Odometry &msg){ odomListiner.outputListiner(msg); });
+	std::string odom_topic = "/fmu/out/vehicle_odometry";
+	auto best_effort_qos = rclcpp::QoS(1).best_effort();
+	subOdomMsg = node->create_subscription<px4_msgs::msg::VehicleOdometry>(
+		odom_topic, best_effort_qos,
+		[](const px4_msgs::msg::VehicleOdometry &msg){ 
+			nav_msgs::msg::Odometry odom =
+        	vehicleOdometryToRosOdometry(msg);
+			
+			odomListiner.outputListiner(odom); 
+			});
 	subMap = node->create_subscription<ros_traj_gen_utils::msg::CuboidMap>(
 		"/vox_blox_map/graph", 10,
 		[](const ros_traj_gen_utils::msg::CuboidMap &msg){ cube_map.setListiner(msg); });

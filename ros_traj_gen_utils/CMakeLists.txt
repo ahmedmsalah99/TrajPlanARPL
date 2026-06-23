@@ -20,6 +20,7 @@ find_package(quadrotor_msgs REQUIRED)
 find_package(trackers_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(px4_msgs REQUIRED)
 # traj_gen is a static library whose exported interface links the Boost::thread
 # and Threads::Threads imported targets, so consumers must define them too.
 find_package(Boost REQUIRED COMPONENTS thread)
@@ -48,6 +49,7 @@ set(dependencies
   traj_gen
   quadrotor_msgs
   trackers_msgs
+  px4_msgs
 )
 
 # Library
