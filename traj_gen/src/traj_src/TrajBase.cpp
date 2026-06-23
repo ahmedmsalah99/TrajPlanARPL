@@ -403,6 +403,10 @@ void TrajBase::setFovCamTilt(double tilt){
 	fovCamTilt = tilt;
 }
 
+void TrajBase::setFovMargin(double m){
+	fovMargin = m;
+}
+
 /*Virtual Stubs*/
 
 
@@ -434,10 +438,15 @@ bool TrajBase::genInEqFOV(double replan_time, Eigen::Vector3d target, 	Eigen::Ve
 	//	return false;
 	//}
 	//Else we do the calcualtion to add the full inequality constriant
-	double sum_jacobian = 1e-8; //Small Nudge to avoid singularities 
-	double sum_jacob_frac = 0.0;
-	ineq_const.f(0) = constr.diff;//*sum_jacob_frac/sum_jacobian;
-	ineq_const.d(0) = -50000;
+	// FOV constraint: keep the linearized margin g_lin(s) >= fovMargin, i.e. a LOWER
+	// bound on grad(g)·s. constr.diff = g(x0) + grad·x0, so g(x0) = constr.diff - grad·x0,
+	// and the wanted bound is  grad·s >= grad·x0 - g(x0) + fovMargin.
+	Eigen::VectorXd x0_state(6);
+	x0_state << pose[0], pose[1], pose[2], accel[0], accel[1], accel[2];
+	double grad_dot_x0 = (constr.Jacobian * x0_state)(0);
+	double g_x0 = constr.diff - grad_dot_x0;            // = diff(x0), the current margin
+	ineq_const.d(0) = grad_dot_x0 - g_x0 + fovMargin;   // lower bound
+	ineq_const.f(0) = 50000;                            // ~ +inf
 	Eigen::MatrixXd row_pos = basis(replan_time, 0).transpose();
 	Eigen::MatrixXd row_acc = basis(replan_time, 2).transpose();
 	Eigen::MatrixXd row_jerk = basis(replan_time, 3).transpose();

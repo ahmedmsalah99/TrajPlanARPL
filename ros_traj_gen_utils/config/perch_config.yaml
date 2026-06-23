@@ -26,6 +26,7 @@ traj_exe:
     replan_min_seg: 0.5         # segments shorter than this (s) are merged/skipped
     # Field-of-view constraint
     fov_cam_tilt: 0.25          # camera mount tilt (rad) of the optical axis from the thrust axis
+    fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
     # 4x4 target (row-major); 90 degree pitch interception by default:
     # row1: 0  0 -1 0
     # row2: 0  1  0 0

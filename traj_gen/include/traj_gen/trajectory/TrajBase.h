@@ -56,6 +56,7 @@ protected:
 	double perchWindow = 0.5;         // t_k : window before impact (s) over which the band is enforced
 	double perchBandEps = 0.2;        // small additive slack so the band never collapses to a point
 	double fovCamTilt = 0.25;         // FOV camera mount tilt (rad)
+	double fovMargin = 0.0;           // FOV safety margin: keep linearized margin >= this
 	bool constrainV = true;
 	float duration = 0.1;
 
@@ -108,6 +109,8 @@ public:
 	void setPerchBand(double q, double window, double eps);
 	//Configure the FOV camera mount tilt (rad)
 	void setFovCamTilt(double tilt);
+	//Configure the FOV safety margin (linearized margin kept >= this)
+	void setFovMargin(double m);
 
 	//Set Constraints
 	//pushes a waypoint into the list
