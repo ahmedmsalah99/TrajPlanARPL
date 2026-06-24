@@ -4,7 +4,7 @@
   <name>traj_gen_test</name>
   <version>0.0.0</version>
   <description>Dummy data publisher to exercise ros_traj_gen_utils (PX4 odometry, waypoints, tag pose).</description>
-  <maintainer email="">anno</maintainer>
+  <maintainer email="anno@gmail.com">anno</maintainer>
   <license>GPLv3</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
