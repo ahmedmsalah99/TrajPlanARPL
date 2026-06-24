@@ -35,24 +35,36 @@ class DummyPublisher(Node):
         self.declare_parameter('waypoint_period_s', 0.1)
         # hover position the dummy reports, in PX4 NED (x=N, y=E, z=Down)
         self.declare_parameter('odom_ned', [0.0, 0.0, 0.0])
-        # waypoints as a flat list [x, y, z, yaw, x, y, z, yaw, ...] in the world frame
-        self.declare_parameter('waypoints', [1.0, 0.0, 1.0, 0.0,
-                                             2.0, 1.0, 1.5, 0.0,
-                                             3.0, 0.0, 1.0, 0.0])
+        # waypoints as a flat list [x, y, z, yaw, x, y, z, yaw, ...] in the world frame.
+        # The planner is NED-native, so z is Down: negative z = altitude above origin.
+        self.declare_parameter('waypoints', [1.0, 0.0, -1.0, 0.0,
+                                             2.0, 1.0, -1.5, 0.0,
+                                             3.0, 0.0, -1.0, 0.0])
         self.declare_parameter('tag_pose',[4.0, 1.0, 2.0, 0.0,1.57,0.0])
         # TF so RViz can resolve the planner's frames (set Fixed Frame = fixed_frame)
         self.declare_parameter('publish_tf', True)
         self.declare_parameter('fixed_frame', 'map')
+        # The planner now works in NED (z-down). RViz renders z-up, so NED data would
+        # appear upside down. With this enabled the fixed_frame is treated as ENU and
+        # the static fixed_frame->{planner frames} transforms carry the ENU<->NED flip,
+        # so NED trajectories/waypoints display right-side-up. Set Fixed Frame = fixed_frame.
+        self.declare_parameter('rviz_enu_flip', True)
 
         self.device = self.get_parameter('device').value
         self.frame_id = self.get_parameter('frame_id').value
         self.fixed_frame = self.get_parameter('fixed_frame').value
         self.publish_tf = bool(self.get_parameter('publish_tf').value)
+        self.rviz_enu_flip = bool(self.get_parameter('rviz_enu_flip').value)
 
         if self.publish_tf:
-            # static identity transforms: fixed_frame -> {planner frames}, and a
-            # camera frame under the drone for the tag pose. Dynamic odom->base_link
-            # (the drone pose) is sent in publish_odom.
+            # static transforms: fixed_frame -> {planner frames}, and a camera frame
+            # under the drone for the tag pose. Dynamic odom->base_link (the drone
+            # pose) is sent in publish_odom.
+            # When rviz_enu_flip is on, fixed_frame is ENU and the planner frames are
+            # NED; the ENU<->NED flip is a 180 deg rotation about the N=E axis, i.e.
+            # quaternion (x, y, z, w) = (sqrt(2)/2, sqrt(2)/2, 0, 0). Otherwise identity.
+            flip = (0.70710678, 0.70710678, 0.0, 0.0) if self.rviz_enu_flip \
+                else (0.0, 0.0, 0.0, 1.0)
             self.static_tf = StaticTransformBroadcaster(self)
             self.tf_bcast = TransformBroadcaster(self)
             statics = []
@@ -61,7 +73,7 @@ class DummyPublisher(Node):
                 if f == self.fixed_frame or f in seen:
                     continue
                 seen.add(f)
-                statics.append(self._identity_tf(self.fixed_frame, f))
+                statics.append(self._static_tf(self.fixed_frame, f, flip))
             statics.append(self._identity_tf('base_link', 'camera'))
             self.static_tf.sendTransform(statics)
 
@@ -99,11 +111,18 @@ class DummyPublisher(Node):
         return int(self.get_clock().now().nanoseconds / 1000)
 
     def _identity_tf(self, parent, child):
+        return self._static_tf(parent, child, (0.0, 0.0, 0.0, 1.0))
+
+    def _static_tf(self, parent, child, quat):
+        # quat is (x, y, z, w)
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = parent
         t.child_frame_id = child
-        t.transform.rotation.w = 1.0
+        t.transform.rotation.x = float(quat[0])
+        t.transform.rotation.y = float(quat[1])
+        t.transform.rotation.z = float(quat[2])
+        t.transform.rotation.w = float(quat[3])
         return t
 
     def publish_odom(self):
@@ -118,15 +137,16 @@ class DummyPublisher(Node):
         self.odom_pub.publish(msg)
 
         if self.publish_tf:
-            # dynamic drone pose: parent = odom frame, child = base_link.
-            # NED -> ENU position to match the planner's converted odom.
+            # dynamic drone pose: parent = odom frame (NED), child = base_link.
+            # The planner is NED-native, so the pose is published as-is; the static
+            # fixed_frame->odom flip (if enabled) handles the RViz z-up display.
             t = TransformStamped()
             t.header.stamp = self.get_clock().now().to_msg()
             t.header.frame_id = self.frame_id
             t.child_frame_id = 'base_link'
-            t.transform.translation.x = float(ned[1])
-            t.transform.translation.y = float(ned[0])
-            t.transform.translation.z = float(-ned[2])
+            t.transform.translation.x = float(ned[0])
+            t.transform.translation.y = float(ned[1])
+            t.transform.translation.z = float(ned[2])
             t.transform.rotation.w = 1.0
             self.tf_bcast.sendTransform(t)
 
