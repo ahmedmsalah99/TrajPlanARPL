@@ -160,11 +160,12 @@ class DummyPublisher(Node):
         ps.header.frame_id = 'camera'
         ps.pose.position.x = tag_pose[0]
         ps.pose.position.y = tag_pose[1]
-        ps.pose.position.z = tag_pose[2]          # 2 m in front of the camera
-        ps.pose.orientation.x = tag_pose[0]
-        ps.pose.orientation.y = tag_pose[1]
-        ps.pose.orientation.z = tag_pose[2]
-        ps.pose.orientation.w = tag_pose[3]
+        ps.pose.position.z = tag_pose[2]          # in front of the camera
+        # rpy_to_quaternion returns (x, y, z, w)
+        ps.pose.orientation.x = q[0]
+        ps.pose.orientation.y = q[1]
+        ps.pose.orientation.z = q[2]
+        ps.pose.orientation.w = q[3]
         self.tag_pub.publish(ps)
 
     def rpy_to_quaternion(self,roll, pitch, yaw, degrees=False):
