@@ -37,11 +37,12 @@ ros2 topic echo /quadrotor/trackers_manager/qp_tracker/qp_trajectory_pos
 | `device` | `/quadrotor` | vehicle namespace; waypoints go to `<device>/waypoints` |
 | `frame_id` | `odom` | frame of the published waypoints |
 | `odom_rate_hz` | `50.0` | odometry publish rate |
-| `publish_tag` | `false` | also publish a dummy tag pose |
+| `publish_tag` | `true` | also publish a dummy tag pose |
 | `tag_rate_hz` | `20.0` | tag publish rate |
-| `waypoint_period_s` | `0.0` | `0` = publish once after a 2 s delay; `>0` = repeat |
+| `waypoint_period_s` | `0.1` | `0` = publish once after a 2 s delay; `>0` = repeat |
 | `odom_ned` | `[0,0,0]` | hover position reported, in PX4 NED |
 | `waypoints` | a 3-point path | flat `[x,y,z,yaw, ...]` in the world frame |
+| `tag pose` | x,y,z,roll,pitch,yaw | in the camera frame |
 
 Note: `traj_exe` also calls the `trackers_manager/transition` and `mav_services/hover`
 services asynchronously; this package does not provide those servers, which is

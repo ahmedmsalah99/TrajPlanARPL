@@ -28,19 +28,21 @@ class DummyPublisher(Node):
         self.declare_parameter('device', '/quadrotor')
         self.declare_parameter('frame_id', 'odom')
         self.declare_parameter('odom_rate_hz', 50.0)
-        self.declare_parameter('publish_tag', False)
+        self.declare_parameter('publish_tag', True)
         self.declare_parameter('tag_rate_hz', 20.0)
         # 0.0 -> publish the waypoints once (after a short delay); >0 -> repeat at this period (s)
-        self.declare_parameter('waypoint_period_s', 0.0)
+        self.declare_parameter('waypoint_period_s', 0.1)
         # hover position the dummy reports, in PX4 NED (x=N, y=E, z=Down)
         self.declare_parameter('odom_ned', [0.0, 0.0, 0.0])
         # waypoints as a flat list [x, y, z, yaw, x, y, z, yaw, ...] in the world frame
         self.declare_parameter('waypoints', [1.0, 0.0, 1.0, 0.0,
                                              2.0, 1.0, 1.5, 0.0,
                                              3.0, 0.0, 1.0, 0.0])
+        self.declare_parameter('tag_pose',[4.0, 1.0, 2.0, 0.0,1.57,0.0])
 
         self.device = self.get_parameter('device').value
         self.frame_id = self.get_parameter('frame_id').value
+        
 
         # PX4 publishes best-effort; the subscriber in traj_exe uses best-effort too.
         be_qos = QoSProfile(depth=1,
@@ -108,16 +110,50 @@ class DummyPublisher(Node):
             self.wp_timer.cancel()
 
     def publish_tag(self):
+        tag_pose = list(self.get_parameter('tag_pose').value)
+        q = self.rpy_to_quaternion(tag_pose[3],tag_pose[4],tag_pose[5])
         ps = PoseStamped()
         ps.header.stamp = self.get_clock().now().to_msg()
         ps.header.frame_id = 'camera'
-        ps.pose.position.x = 0.0
-        ps.pose.position.y = 0.0
-        ps.pose.position.z = 2.0          # 2 m in front of the camera
-        ps.pose.orientation.w = 1.0
+        ps.pose.position.x = tag_pose[0]
+        ps.pose.position.y = tag_pose[1]
+        ps.pose.position.z = tag_pose[2]          # 2 m in front of the camera
+        ps.pose.orientation.x = tag_pose[0]
+        ps.pose.orientation.y = tag_pose[1]
+        ps.pose.orientation.z = tag_pose[2]
+        ps.pose.orientation.w = tag_pose[3]
         self.tag_pub.publish(ps)
 
+    def rpy_to_quaternion(self,roll, pitch, yaw, degrees=False):
+        """
+        Convert roll, pitch, yaw to quaternion.
 
+        Parameters:
+            roll, pitch, yaw: Euler angles
+            degrees: if True, input is in degrees
+
+        Returns:
+            (x, y, z, w) quaternion
+        """
+
+        if degrees:
+            roll = math.radians(roll)
+            pitch = math.radians(pitch)
+            yaw = math.radians(yaw)
+
+        cr = math.cos(roll * 0.5)
+        sr = math.sin(roll * 0.5)
+        cp = math.cos(pitch * 0.5)
+        sp = math.sin(pitch * 0.5)
+        cy = math.cos(yaw * 0.5)
+        sy = math.sin(yaw * 0.5)
+
+        w = cr * cp * cy + sr * sp * sy
+        x = sr * cp * cy - cr * sp * sy
+        y = cr * sp * cy + sr * cp * sy
+        z = cr * cp * sy - sr * sp * cy
+
+        return (x, y, z, w)
 def main(args=None):
     rclpy.init(args=args)
     node = DummyPublisher()

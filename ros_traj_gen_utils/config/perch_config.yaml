@@ -1,6 +1,6 @@
 traj_exe:
   ros__parameters:
-    device: "/quadrotor"     # vehicle name
+    device: "quadrotor"     # vehicle name
     odom_frame: "/odom"      # odometry frame; planner subscribes to <device><odom_frame>
     # odom_frame: "/quadrotor_ukf/control_odom"  # for simulation
     visual: false            # use visual feedback from an apriltag

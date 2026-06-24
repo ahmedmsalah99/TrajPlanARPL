@@ -13,11 +13,12 @@ def generate_launch_description():
                 'device': '/quadrotor',
                 'frame_id': 'odom',
                 'odom_rate_hz': 50.0,
-                'publish_tag': False,
-                'waypoint_period_s': 0.0,
+                'publish_tag': True,
+                'waypoint_period_s': 0.1,
                 'waypoints': [1.0, 0.0, 1.0, 0.0,
                               2.0, 1.0, 1.5, 0.0,
                               3.0, 0.0, 1.0, 0.0],
+                'tag_pose' : [4.0, 1.0, 2.0, 0.0,1.57,0.0]
             }],
         ),
     ])
