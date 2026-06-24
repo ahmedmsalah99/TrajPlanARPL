@@ -18,7 +18,8 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from px4_msgs.msg import VehicleOdometry
 from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TransformStamped
+from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
 
 
 class DummyPublisher(Node):
@@ -39,10 +40,31 @@ class DummyPublisher(Node):
                                              2.0, 1.0, 1.5, 0.0,
                                              3.0, 0.0, 1.0, 0.0])
         self.declare_parameter('tag_pose',[4.0, 1.0, 2.0, 0.0,1.57,0.0])
+        # TF so RViz can resolve the planner's frames (set Fixed Frame = fixed_frame)
+        self.declare_parameter('publish_tf', True)
+        self.declare_parameter('fixed_frame', 'map')
 
         self.device = self.get_parameter('device').value
         self.frame_id = self.get_parameter('frame_id').value
-        
+        self.fixed_frame = self.get_parameter('fixed_frame').value
+        self.publish_tf = bool(self.get_parameter('publish_tf').value)
+
+        if self.publish_tf:
+            # static identity transforms: fixed_frame -> {planner frames}, and a
+            # camera frame under the drone for the tag pose. Dynamic odom->base_link
+            # (the drone pose) is sent in publish_odom.
+            self.static_tf = StaticTransformBroadcaster(self)
+            self.tf_bcast = TransformBroadcaster(self)
+            statics = []
+            seen = set()
+            for f in [self.frame_id, 'world', 'simulator', 'mocap']:
+                if f == self.fixed_frame or f in seen:
+                    continue
+                seen.add(f)
+                statics.append(self._identity_tf(self.fixed_frame, f))
+            statics.append(self._identity_tf('base_link', 'camera'))
+            self.static_tf.sendTransform(statics)
+
 
         # PX4 publishes best-effort; the subscriber in traj_exe uses best-effort too.
         be_qos = QoSProfile(depth=1,
@@ -76,6 +98,14 @@ class DummyPublisher(Node):
         # PX4 timestamps are microseconds; the converter multiplies by 1000 -> ns.
         return int(self.get_clock().now().nanoseconds / 1000)
 
+    def _identity_tf(self, parent, child):
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = parent
+        t.child_frame_id = child
+        t.transform.rotation.w = 1.0
+        return t
+
     def publish_odom(self):
         ned = list(self.get_parameter('odom_ned').value)
         msg = VehicleOdometry()
@@ -86,6 +116,19 @@ class DummyPublisher(Node):
         msg.velocity = [0.0, 0.0, 0.0]
         msg.angular_velocity = [0.0, 0.0, 0.0]
         self.odom_pub.publish(msg)
+
+        if self.publish_tf:
+            # dynamic drone pose: parent = odom frame, child = base_link.
+            # NED -> ENU position to match the planner's converted odom.
+            t = TransformStamped()
+            t.header.stamp = self.get_clock().now().to_msg()
+            t.header.frame_id = self.frame_id
+            t.child_frame_id = 'base_link'
+            t.transform.translation.x = float(ned[1])
+            t.transform.translation.y = float(ned[0])
+            t.transform.translation.z = float(-ned[2])
+            t.transform.rotation.w = 1.0
+            self.tf_bcast.sendTransform(t)
 
     def publish_waypoints(self):
         flat = list(self.get_parameter('waypoints').value)

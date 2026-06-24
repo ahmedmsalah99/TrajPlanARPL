@@ -30,6 +30,20 @@ ros2 topic echo /quadrotor/position_cmd
 ros2 topic echo /quadrotor/trackers_manager/qp_tracker/qp_trajectory_pos
 ```
 
+## RViz / TF
+
+The planner publishes its `Path`/`PositionCommand` in several frames (`odom`, `world`,
+`simulator`) and the dummy's waypoints in `odom`. RViz needs a TF tree to place them,
+so this node also broadcasts:
+
+- static identity transforms `fixed_frame` → {`odom`/`frame_id`, `world`, `simulator`, `mocap`}
+- dynamic `odom` → `base_link` (the drone pose; NED→ENU of `odom_ned`)
+- static `base_link` → `camera` (for the tag pose)
+
+In RViz set **Fixed Frame = `map`** (the default `fixed_frame`). Then add Path displays
+for the waypoint/trajectory topics, a PoseStamped display for the tag, and a TF display
+to see the drone/camera frames. Set `publish_tf:=false` if you provide TF elsewhere.
+
 ## Parameters
 
 | Param | Default | Meaning |
