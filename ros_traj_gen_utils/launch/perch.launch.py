@@ -19,5 +19,6 @@ def generate_launch_description():
             name='traj_exe',
             output='screen',
             parameters=[config],
+            prefix=['xterm -e gdb -ex run --args']
         ),
     ])

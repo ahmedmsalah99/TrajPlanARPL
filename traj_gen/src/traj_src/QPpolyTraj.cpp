@@ -246,7 +246,7 @@ void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint
                     C,
                     ineq_qp.d,ineq_qp.f,
 					sol,ignoreUnknownError)){
-		//std::cout << "QP successful generation" << std::endl;
+		std::cout << "QP successful generation" << std::endl;
 		traj_valid->operator[](dimension) = true; 
 	}
 	else{
@@ -598,6 +598,7 @@ Eigen::MatrixXd QPpolyTraj::generateObjFun(int minDeriv)
 
 QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 {
+	std::cout << "entered genInEqConstraint " << std::endl;
 	double dt = 0.01; // Make a class member
 	int numConst =0;
     int coeffNum = (vertices.size() - 1) *  polyOrder;
@@ -642,7 +643,7 @@ QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 				if(toff < 0){ toff = 0; }
 				//std::cout << "End time " << time << std::endl;
 				while(toff < time){
-					//std::cout << "TIME OF CONSTRAINT " << toff << std::endl;
+					
 					Eigen::VectorXd row = basis(toff, pon_ineq.derivOrder);
 					ineq_const.d(rowNum) = pon_ineq.lower(dimension);
 					ineq_const.f(rowNum) = pon_ineq.upper(dimension);
@@ -653,9 +654,7 @@ QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 			}
 		}
 	}
-	
 	if(add_ineq_constr.size()!=0){
-
 		ineq_const.d.tail(add_constr_num) = temp_ineq_constr.d;
 		ineq_const.C.block(rowNum, 0,add_constr_num, coeffNum) = temp_ineq_constr.C;
 		ineq_const.f.tail(add_constr_num) = temp_ineq_constr.f;
@@ -883,7 +882,7 @@ QP_ineq_const QPpolyTraj::genInEqJointConstraint(){
 			//Count the number of inequality constraints you have
 			for(int j =0; j < vertices[i].ineq_constraint.size(); j++){
 				double toff = vertices[i].ineq_constraint[j].timeOffset;
-				numConst += (vertices[i].ineq_constraint[j].InEqDim(k)*toff/0.02+1);
+				numConst += (vertices[i].ineq_constraint[j].InEqDim(k)*toff/0.01+1);
 			}
 		}
 		if(add_ineq_constr.size()!=0){
@@ -940,7 +939,7 @@ Eigen::MatrixXd QPpolyTraj::calculateTrajectory( int Order, double dt){
 	//CONDITION CHECK THAT THERE WAS A SUCCESFUL WORK ON ALL 4 AXISES
 	if (!(traj_valid[0]&&traj_valid[1]&&traj_valid[2] &&traj_valid[3])){
 		//IF any of the above is false
-		std::cout << "FAILURE GENERATING PATH" <<std::endl;
+		// std::cout << "FAILURE GENERATING PATH" <<std::endl;
 		return Eigen::MatrixXd::Zero(length,dim);
 	}
 	Eigen::MatrixXd trajectory(length,dim);
