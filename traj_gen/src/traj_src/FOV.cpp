@@ -19,9 +19,10 @@ fov_zero_order FOV_constraint::evalState(const Eigen::Vector3d& target,
 	fov_zero_order eval;
 	const double pi = 3.14159265358979323846;
 	double yaw = init_pos[3];
-	Eigen::Vector3d B2(-sin(yaw), cos(yaw), 0.0);              // body y-axis
+	Eigen::Vector3d B2(-sin(yaw), cos(yaw), 0.0);              // body y-axis (see note: handedness/mount = Part 2)
 	Eigen::Vector3d nd = target - pos;                         // quad -> target
-	Eigen::Vector3d B3 = acc; B3[2] += g; B3 = B3.normalized();// thrust axis b3
+	// thrust axis b3 = normalize(acc + g*e3); in NED (z-down) e3=(0,0,-1) so this is acc.z - g
+	Eigen::Vector3d B3 = acc; B3[2] -= g; B3 = B3.normalized();
 	double th = pi/2.0 + camTilt;                              // optical axis angle from b3 about b2
 	Eigen::Vector3d n_proj = B3*cos(th)
 	                       + B2.cross(B3)*sin(th)
