@@ -74,24 +74,24 @@ nav_msgs::msg::Odometry vehicleOdometryToRosOdometry(
     odom.header.frame_id = "odom";
     odom.child_frame_id = "base_link";
 
-    // NED -> ENU
-    odom.pose.pose.position.x = px4_msg.position[1];   // East
-    odom.pose.pose.position.y = px4_msg.position[0];   // North
-    odom.pose.pose.position.z = -px4_msg.position[2];  // Up
+    // NED/FRD passthrough: the library now works natively in NED (z-down) / FRD,
+    // so the PX4 odometry is copied as-is (no NED->ENU swap, no orientation rotation).
+    odom.pose.pose.position.x = px4_msg.position[0];   // North
+    odom.pose.pose.position.y = px4_msg.position[1];   // East
+    odom.pose.pose.position.z = px4_msg.position[2];   // Down
 
-    // Quaternion
-    // PX4 stores [w, x, y, z]
+    // PX4 quaternion is [w, x, y, z], body-FRD expressed in NED -- copied as-is.
     odom.pose.pose.orientation.w = px4_msg.q[0];
     odom.pose.pose.orientation.x = px4_msg.q[1];
     odom.pose.pose.orientation.y = px4_msg.q[2];
     odom.pose.pose.orientation.z = px4_msg.q[3];
 
-    // Linear velocity NED -> ENU
-    odom.twist.twist.linear.x = px4_msg.velocity[1];
-    odom.twist.twist.linear.y = px4_msg.velocity[0];
-    odom.twist.twist.linear.z = -px4_msg.velocity[2];
+    // Linear velocity (NED) as-is
+    odom.twist.twist.linear.x = px4_msg.velocity[0];
+    odom.twist.twist.linear.y = px4_msg.velocity[1];
+    odom.twist.twist.linear.z = px4_msg.velocity[2];
 
-    // Angular velocity
+    // Angular velocity (body FRD) as-is
     odom.twist.twist.angular.x = px4_msg.angular_velocity[0];
     odom.twist.twist.angular.y = px4_msg.angular_velocity[1];
     odom.twist.twist.angular.z = px4_msg.angular_velocity[2];
