@@ -359,14 +359,26 @@ Eigen::MatrixXd QPpolyTraj::evalTraj(double time){
 		std::cout << "FAILURE GENERATING PATH" <<std::endl;
 		return Eigen::MatrixXd::Constant(5,dim,-1e10);
 	}
-	int k=0;
-	if(segmentTimes[numSeg-1] < k){
+	if(numSeg < 1){
 		return Eigen::MatrixXd::Constant(5,dim,-1e10);
 	}
-    while(segmentTimes[k] < time) {
+	int k=0;
+	if(time < 0.0){
+		time = 0.0;
+	}
+	// Find the segment containing `time`, accumulating local time. Stop at the
+	// last segment so a request at/after the trajectory end never walks k past
+	// coeffSolved's rows (which triggers an Eigen out-of-range assertion).
+    while(k < numSeg-1 && segmentTimes[k] < time) {
 		time -= segmentTimes[k];
 		k+=1;
     }
+	// If the request is beyond this segment's duration (e.g. floating-point
+	// overshoot at the trajectory end), clamp to the segment endpoint rather
+	// than extrapolating the polynomial.
+	if(time > segmentTimes[k]){
+		time = segmentTimes[k];
+	}
 	//std::cout << "segment : " << k << std::endl;
 	Eigen::MatrixXd point(5,dim);
 	for(int Order=0; Order < 5;Order++){
