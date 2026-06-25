@@ -259,6 +259,9 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 			if (replan_success){
 				traj_use = replanner.getTraj();
 				controller->startFlight(traj_use);
+				//refresh RViz so it shows the live replanned trajectory, not the
+				//stale initial plan (the endpoint tracks the moving target)
+				visualize_paths(traj_use);
 			}
 			double replan_timer_end =  node->now().seconds() ;
 			std::cout << "Time ELAPSED " <<replan_timer_end-replan_timer <<std::endl;
