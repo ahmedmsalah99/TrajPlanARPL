@@ -93,7 +93,22 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 		waypoint start(current_heading);
 		trajectory->push_back(start);
 	}
-        //std::cout << "first point pushed " <<std::endl;	
+        //std::cout << "first point pushed " <<std::endl;
+	// Make the final waypoint coincide with the target position so the initial
+	// plan terminates at the target (mirrors replan(), which overwrites the last
+	// waypoint with the target). Replacing the position -- rather than appending
+	// a new vertex -- avoids a zero-length final segment when the user's last
+	// waypoint already sits at the target. The perch terminal condition
+	// (orientation/approach) is applied separately via calcPerchCond below; the
+	// existing waypoint's yaw is preserved.
+	if(!future_v.empty()){
+		Eigen::VectorXd lastPos;
+		future_v[future_v.size()-1].getPos(&lastPos);
+		lastPos(0) = target(0,3);
+		lastPos(1) = target(1,3);
+		lastPos(2) = target(2,3);
+		future_v[future_v.size()-1].setPos(lastPos);
+	}
 	for (int i =0;i < future_v.size();i++){
 		trajectory->push_back(future_v[i]);
 	}
