@@ -274,10 +274,10 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	int numPoint = vertices.size();
 
 	// Surface normal s3 (outward), in the world frame = 3rd column of the target
-	// rotation. e3 is world-up. The inclination is the angle between s3 and e3.
+	// rotation. e3 is world-up; in NED (z-down) that is (0,0,-1).
 	Eigen::Vector3d s3(H(0,2), H(1,2), H(2,2));
-	Eigen::Vector3d e3(0.0, 0.0, 1.0);
-	double cos_incl = s3.dot(e3);                       // = cos(inclination) = s3_z
+	Eigen::Vector3d e3(0.0, 0.0, -1.0);
+	double cos_incl = s3.dot(e3);                       // = cos(inclination)
 	double sin_incl = sqrt(s3(0)*s3(0) + s3(1)*s3(1));  // horizontal length of s3 = sin(inclination)
 
 	// Guard: an upside-down / overhanging pad (normal points below horizontal)
@@ -316,10 +316,11 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	vertices[numPoint-1].setVel(impVel);
 
 	// Terminal acceleration so that b3 = s3 at contact (eq. 12): xdd = force*s3 - g*e3.
+	// Written via e3 so it follows the frame's up-vector (in NED this adds +g on z).
 	Eigen::VectorXd finalAccel = Eigen::VectorXd::Zero(4);
-	finalAccel[0] = s3(0) * force;
-	finalAccel[1] = s3(1) * force;
-	finalAccel[2] = s3(2) * force - 9.81;
+	finalAccel[0] = s3(0) * force - 9.81 * e3(0);
+	finalAccel[1] = s3(1) * force - 9.81 * e3(1);
+	finalAccel[2] = s3(2) * force - 9.81 * e3(2);
 	vertices[numPoint-1].setAccel(finalAccel);
 	//vertices[numPoint-1].setJerk(Eigen::VectorXd::Zero(4));
 	//vertices[numPoint-1].setSnap(Eigen::VectorXd::Zero(4));

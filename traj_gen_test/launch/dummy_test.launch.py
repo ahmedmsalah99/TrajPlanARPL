@@ -15,13 +15,15 @@ def generate_launch_description():
                 'odom_rate_hz': 50.0,
                 'publish_tag': True,
                 'waypoint_period_s': 0.1,
-                'waypoints': [1.0, 0.0, 1.0, 0.0,
-                              2.0, 1.0, 1.0, 0.0,
-                              3.0, 0.0, 1.0, 0.0],
+                # NED waypoints: z is Down, so negative z = altitude above origin
+                'waypoints': [1.0, 0.0, -1.0, 0.0,
+                              2.0, 1.0, -1.0, 0.0,
+                              3.0, 0.0, -1.0, 0.0],
                 'tag_pose' : [3.0, 0.0, 1.0, 0.0,3.14,0.0],
                 'odom_ned':[-5.0,0,0],
                 'publish_tf': True,      # publish TF so RViz can resolve the frames
                 'fixed_frame': 'map',    # set RViz Fixed Frame to this
+                'rviz_enu_flip': True,   # flip fixed_frame->planner so NED shows upright
             }],
         ),
     ])
