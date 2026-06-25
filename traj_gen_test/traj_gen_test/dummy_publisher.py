@@ -40,7 +40,15 @@ class DummyPublisher(Node):
         self.declare_parameter('waypoints', [1.0, 0.0, -1.0, 0.0,
                                              2.0, 1.0, -1.5, 0.0,
                                              3.0, 0.0, -1.0, 0.0])
+        # densify the waypoint list so no two consecutive points are farther apart
+        # than this (metres); <= 0 disables interpolation and publishes them as-is
+        self.declare_parameter('max_segment_len', 1.0)
         self.declare_parameter('tag_pose',[4.0, 1.0, 2.0, 0.0,1.57,0.0])
+        # append the tag pose (x, y, z, yaw) as the final waypoint so the planner's
+        # terminal target also shows up in the Waypoints display. tag_pose's position
+        # is treated as a world/frame_id point here (the PoseStamped is still published
+        # in the camera frame for the visual path).
+        self.declare_parameter('append_tag_waypoint', True)
         # TF so RViz can resolve the planner's frames (set Fixed Frame = fixed_frame)
         self.declare_parameter('publish_tf', True)
         self.declare_parameter('fixed_frame', 'map')
@@ -55,6 +63,8 @@ class DummyPublisher(Node):
         self.fixed_frame = self.get_parameter('fixed_frame').value
         self.publish_tf = bool(self.get_parameter('publish_tf').value)
         self.rviz_enu_flip = bool(self.get_parameter('rviz_enu_flip').value)
+        self.max_segment_len = float(self.get_parameter('max_segment_len').value)
+        self.append_tag_waypoint = bool(self.get_parameter('append_tag_waypoint').value)
 
         if self.publish_tf:
             # static transforms: fixed_frame -> {planner frames}, and a camera frame
@@ -150,14 +160,37 @@ class DummyPublisher(Node):
             t.transform.rotation.w = 1.0
             self.tf_bcast.sendTransform(t)
 
+    def _densify(self, pts):
+        """Insert interpolated waypoints so no consecutive pair (in x,y,z) is
+        farther apart than max_segment_len. yaw is interpolated linearly."""
+        if self.max_segment_len <= 0.0 or len(pts) < 2:
+            return pts
+        out = [pts[0]]
+        for a, b in zip(pts[:-1], pts[1:]):
+            dist = math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2 +
+                             (b[2] - a[2]) ** 2)
+            n = max(1, int(math.ceil(dist / self.max_segment_len)))
+            for k in range(1, n + 1):
+                t = k / n
+                out.append((a[0] + (b[0] - a[0]) * t,
+                            a[1] + (b[1] - a[1]) * t,
+                            a[2] + (b[2] - a[2]) * t,
+                            a[3] + (b[3] - a[3]) * t))
+        return out
+
     def publish_waypoints(self):
         flat = list(self.get_parameter('waypoints').value)
+        pts = [(float(flat[i]), float(flat[i + 1]),
+                float(flat[i + 2]), float(flat[i + 3]))
+               for i in range(0, len(flat) - 3, 4)]
+        if self.append_tag_waypoint:
+            tag = list(self.get_parameter('tag_pose').value)
+            pts.append((float(tag[0]), float(tag[1]), float(tag[2]), float(tag[5])))
+        pts = self._densify(pts)
         path = Path()
         path.header.stamp = self.get_clock().now().to_msg()
         path.header.frame_id = self.frame_id
-        for i in range(0, len(flat) - 3, 4):
-            x, y, z, yaw = (float(flat[i]), float(flat[i + 1]),
-                            float(flat[i + 2]), float(flat[i + 3]))
+        for x, y, z, yaw in pts:
             ps = PoseStamped()
             ps.header.frame_id = self.frame_id
             ps.pose.position.x = x
