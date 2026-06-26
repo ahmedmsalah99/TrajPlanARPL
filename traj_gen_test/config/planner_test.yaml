@@ -1,0 +1,20 @@
+traj_exe:
+  ros__parameters:
+    device: "/quadrotor"     # vehicle name (matches the dummy publisher)
+    odom_frame: "/odom"      # odometry frame; planner subscribes to <device><odom_frame>
+    visual: false            # no apriltag feedback for the plain waypoint test
+    replan: false            # one-shot plan (set true to exercise rolling replans)
+    display_2D: false
+    # Dynamic limits used for time allocation
+    v_max: 5.0
+    a_max: 10.0
+    # Replanner timing / retry (only used if replan: true)
+    replan_time: 0.04
+    replan_t_off: 0.05
+    replan_retry_step: 0.2
+    replan_retry_max: 10
+    replan_min_seg: 0.5
+    # NOTE: target_pose is intentionally omitted -> usePerch = false -> the
+    # trajectory ends at the last waypoint with a full stop (no perch terminal
+    # velocity/acceleration band), so it does not curve back toward the start.
+    # For actual perching use ros_traj_gen_utils/config/perch_config.yaml.
