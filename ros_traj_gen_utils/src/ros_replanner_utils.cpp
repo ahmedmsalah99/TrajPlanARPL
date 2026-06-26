@@ -101,14 +101,14 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 	// waypoint already sits at the target. The perch terminal condition
 	// (orientation/approach) is applied separately via calcPerchCond below; the
 	// existing waypoint's yaw is preserved.
-	if(!future_v.empty()){
-		Eigen::VectorXd lastPos;
-		future_v[future_v.size()-1].getPos(&lastPos);
-		lastPos(0) = target(0,3);
-		lastPos(1) = target(1,3);
-		lastPos(2) = target(2,3);
-		future_v[future_v.size()-1].setPos(lastPos);
-	}
+	// if(!future_v.empty()){
+	// 	Eigen::VectorXd lastPos;
+	// 	future_v[future_v.size()-1].getPos(&lastPos);
+	// 	lastPos(0) = target(0,3);
+	// 	lastPos(1) = target(1,3);
+	// 	lastPos(2) = target(2,3);
+	// 	future_v[future_v.size()-1].setPos(lastPos);
+	// }
 	for (int i =0;i < future_v.size();i++){
 		trajectory->push_back(future_v[i]);
 	}
