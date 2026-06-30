@@ -80,6 +80,10 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 			return false;
 		}
 	}
+	// Minimal execution time: shrink the allocation toward the dynamic limits
+	// (peak vel/accel reach v_max/a_max) now that we have a feasible solve.
+	trajectory->minimizeTime(degreeOpt);
+	segmentTimes = trajectory->segmentTimes;
 	return true;
 }
 
@@ -133,6 +137,10 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 			return false;
 		}
 	}
+	// Minimal execution time: shrink the allocation toward the dynamic limits
+	// (peak vel/accel reach v_max/a_max) now that we have a feasible solve.
+	trajectory->minimizeTime(degreeOpt);
+	segmentTimes = trajectory->segmentTimes;
 	return true;
 }
 

@@ -79,6 +79,59 @@ float TrajBase::autogenTimeSegment()
 }
 
 
+void TrajBase::minimizeTime(int degreeOpt, int maxIters)
+{
+	double v_max = (limits.size() > 1) ? limits[1] : 0.0;
+	double a_max = (limits.size() > 2) ? limits[2] : 0.0;
+	if(!(v_max > 1e-6) || !(a_max > 1e-6)){
+		return; // no dynamic limits configured -> nothing to optimize against
+	}
+	const int kSamples = 200;
+	for(int it = 0; it < maxIters; it++){
+		if(!checkSolved()){
+			return; // need a solved trajectory to measure; keep what we have
+		}
+		double T = 0.0;
+		for(size_t s = 0; s < segmentTimes.size(); s++){ T += segmentTimes[s]; }
+		if(T <= 1e-6){ return; }
+
+		// Peak |velocity| and |acceleration| over x,y,z along the trajectory.
+		double v_peak = 0.0, a_peak = 0.0;
+		for(int k = 0; k <= kSamples; k++){
+			double t = T * (double)k / (double)kSamples;
+			Eigen::MatrixXd st = evalTraj(t);
+			double v = st.block(1, 0, 1, 3).norm();
+			double a = st.block(2, 0, 1, 3).norm();
+			if(v > v_peak){ v_peak = v; }
+			if(a > a_peak){ a_peak = a; }
+		}
+
+		// Uniform time scale s: velocity ~ 1/s, acceleration ~ 1/s^2.
+		double s_v = v_peak / v_max;
+		double s_a = sqrt(a_peak / a_max);
+		double scale = std::max(s_v, s_a);
+
+		// Only SHRINK (speed up) when there is slack under both limits. If the
+		// trajectory is already at/over a limit (scale >= ~1 -- e.g. the fixed
+		// free-fall acceleration of a perch terminal), leave it: we cannot go
+		// faster without violating the limits.
+		if(scale > 0.98){
+			break;
+		}
+		scale = std::max(scale, 0.5); // cap the per-iteration shrink for stability
+
+		std::vector<double> prev = segmentTimes;
+		for(size_t s = 0; s < segmentTimes.size(); s++){ segmentTimes[s] *= scale; }
+		solve(degreeOpt);
+		if(!checkSolved()){
+			segmentTimes = prev; // the shrink broke feasibility -> revert and stop
+			solve(degreeOpt);
+			break;
+		}
+	}
+}
+
+
 void TrajBase::push_back(waypoint w){
 	if (w.getDim() != dim){
 		//Thrown an exception. Waypoints must match the trajBase dimension
