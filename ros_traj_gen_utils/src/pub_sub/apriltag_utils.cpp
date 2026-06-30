@@ -13,22 +13,40 @@ apriltag_utils::apriltag_utils(){
 //  - camTranslation is the camera position offset in the body frame.
 //  - H_TAG rotation is a fixed convention; tagTranslation is its translation offset.
 void apriltag_utils::setExtrinsics(const Eigen::Vector3d& camTranslation, double camTilt,
-                                   const Eigen::Vector3d& tagTranslation){
-	Eigen::Matrix3d rot1 = Eigen::Matrix3d::Zero();
-	rot1(0,2) = 1;
-	rot1(1,0) = -1;
-	rot1(2,1) = -1;
-	Eigen::Matrix3d rotTilt = Eigen::AngleAxisd(camTilt, Eigen::Vector3d::UnitX()).toRotationMatrix();
+                                   const Eigen::Vector3d& tagTranslation, bool identityRot){
+	simpleExtrinsics = identityRot;
+
+	Eigen::Matrix3d camRot;
+	Eigen::Matrix3d tagRot;
+	if(identityRot){
+		// Sim/dummy convention: camera optical frame == body frame, tag pose given
+		// directly in that frame. No axis swaps, no tilt -> the tag maps straight
+		// through to the world via the drone pose (H_IT = H_IR * [I|camT] * [R_tag|p]).
+		camRot = Eigen::Matrix3d::Identity();
+		tagRot = Eigen::Matrix3d::Identity();
+	}
+	else{
+		// Real-rig convention: fixed optical-axis swap (rot1) tilted about the
+		// camera x-axis by camTilt, plus the tag-frame axis swap (H_TAG).
+		Eigen::Matrix3d rot1 = Eigen::Matrix3d::Zero();
+		rot1(0,2) = 1;
+		rot1(1,0) = -1;
+		rot1(2,1) = -1;
+		Eigen::Matrix3d rotTilt = Eigen::AngleAxisd(camTilt, Eigen::Vector3d::UnitX()).toRotationMatrix();
+		camRot = rot1 * rotTilt;
+		tagRot = Eigen::Matrix3d::Zero();
+		tagRot(0,1) = -1;
+		tagRot(1,0) = 1;
+		tagRot(2,2) = 1;
+	}
 
 	H_RC = Eigen::Matrix4d::Zero();
-	H_RC.block<3,3>(0,0) = rot1 * rotTilt;
+	H_RC.block<3,3>(0,0) = camRot;
 	H_RC.block<3,1>(0,3) = camTranslation;
 	H_RC(3,3) = 1;
 
 	H_TAG = Eigen::Matrix4d::Zero();
-	H_TAG(0,1) = -1;
-	H_TAG(1,0) = 1;
-	H_TAG(2,2) = 1;
+	H_TAG.block<3,3>(0,0) = tagRot;
 	H_TAG.block<3,1>(0,3) = tagTranslation;
 	H_TAG(3,3) = 1;
 }
@@ -245,14 +263,12 @@ Eigen::Matrix4d apriltag_utils::WorldRot(joint_pose pose){
 */
 	//std::cout << "Process Apriltag to Homogenous Matrix " <<std::endl;
 	Eigen::Matrix4d H_IT = H_IR*H_RC*H_CT;
-	// Simplified Perch Constraint3
-	//perch_constraint land_point;
-	//land_point.pos = H_IT.block<3,1>(0,3);
-	//std::cout << "Position" << land_point.pos <<std::endl;
-	//land_point.rot =  H_IT.block<3,1>(0,2);
-	//Eigen::Vector3d ea = m.eulerAngles(2, 1, 0);
-	//land_point.rot = m;
-	//TEMPORARY SOLUTION SIMPLY KILL THE Y AXIS 
-	H_IT(1,3) = 0;
-	return H_IT;	
+	// Real-rig demo hack: the original setup only trusted x/z of the detection and
+	// zeroed the world Y. That silently drops the Y goal, so skip it in the simple
+	// (sim/dummy) convention where the full tag position is meaningful.
+	if(!simpleExtrinsics){
+		//TEMPORARY SOLUTION SIMPLY KILL THE Y AXIS
+		H_IT(1,3) = 0;
+	}
+	return H_IT;
 }

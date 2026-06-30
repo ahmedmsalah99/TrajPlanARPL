@@ -44,6 +44,11 @@ class DummyPublisher(Node):
         # than this (metres); <= 0 disables interpolation and publishes them as-is
         self.declare_parameter('max_segment_len', 1.0)
         self.declare_parameter('tag_pose',[4.0, 1.0, 2.0, 0.0,1.57,0.0])
+        # camera offset in the body (base_link) frame, in metres. Must match the
+        # planner's cam_translation so the dummy's tag (published in the 'camera'
+        # frame) maps to the same world target the planner computes. Identity
+        # rotation: this assumes the planner runs with simple_extrinsics=true.
+        self.declare_parameter('cam_translation', [0.0, 0.0, 0.0])
         # TF so RViz can resolve the planner's frames (set Fixed Frame = fixed_frame)
         self.declare_parameter('publish_tf', True)
         self.declare_parameter('fixed_frame', 'map')
@@ -59,6 +64,7 @@ class DummyPublisher(Node):
         self.publish_tf = bool(self.get_parameter('publish_tf').value)
         self.rviz_enu_flip = bool(self.get_parameter('rviz_enu_flip').value)
         self.max_segment_len = float(self.get_parameter('max_segment_len').value)
+        self.cam_translation = list(self.get_parameter('cam_translation').value)
 
         if self.publish_tf:
             # static transforms: fixed_frame -> {planner frames}, and a camera frame
@@ -78,7 +84,10 @@ class DummyPublisher(Node):
                     continue
                 seen.add(f)
                 statics.append(self._static_tf(self.fixed_frame, f, flip))
-            statics.append(self._identity_tf('base_link', 'camera'))
+            # camera is identity-rotated under base_link, offset by cam_translation
+            # (must match the planner's cam_translation under simple_extrinsics).
+            statics.append(self._static_tf('base_link', 'camera',
+                                           (0.0, 0.0, 0.0, 1.0), self.cam_translation))
             self.static_tf.sendTransform(statics)
 
 
@@ -117,12 +126,15 @@ class DummyPublisher(Node):
     def _identity_tf(self, parent, child):
         return self._static_tf(parent, child, (0.0, 0.0, 0.0, 1.0))
 
-    def _static_tf(self, parent, child, quat):
-        # quat is (x, y, z, w)
+    def _static_tf(self, parent, child, quat, trans=(0.0, 0.0, 0.0)):
+        # quat is (x, y, z, w); trans is (x, y, z)
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = parent
         t.child_frame_id = child
+        t.transform.translation.x = float(trans[0])
+        t.transform.translation.y = float(trans[1])
+        t.transform.translation.z = float(trans[2])
         t.transform.rotation.x = float(quat[0])
         t.transform.rotation.y = float(quat[1])
         t.transform.rotation.z = float(quat[2])
