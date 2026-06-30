@@ -84,9 +84,15 @@ public:
 	void overideSolve(); //Dangerous function converts all valid to true forcefully.
 
 	//Set time Vector automatically
-	float autogenTimeSegment(); 
+	float autogenTimeSegment();
+	//Shrink the (already-solved) segment times toward the dynamic limits so the
+	//trajectory's peak velocity/acceleration reach limits[1]/limits[2] -> minimal
+	//execution time within the limits. Only speeds up when there is slack; never
+	//slows down (e.g. a perch terminal's fixed free-fall accel is left alone).
+	//Re-solves internally; call after a successful solve().
+	void minimizeTime(int degreeOpt, int maxIters = 6);
 	//Divides the time equally given a duration
-	void equalTimeSegment(double duration); 
+	void equalTimeSegment(double duration);
 	//Manually set a time vector
 	void setTimeSegment(std::vector<double> t);
 	void setCostVector(Eigen::VectorXd vector);
