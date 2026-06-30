@@ -83,7 +83,10 @@ void TrajBase::minimizeTime(int degreeOpt, int maxIters)
 {
 	double v_max = (limits.size() > 1) ? limits[1] : 0.0;
 	double a_max = (limits.size() > 2) ? limits[2] : 0.0;
+	std::cout << "[minimizeTime] called: v_max=" << v_max << " a_max=" << a_max
+	          << " segs=" << segmentTimes.size() << std::endl;
 	if(!(v_max > 1e-6) || !(a_max > 1e-6)){
+		std::cout << "[minimizeTime] no limits -> skip" << std::endl;
 		return; // no dynamic limits configured -> nothing to optimize against
 	}
 	const int kSamples = 200;
@@ -121,12 +124,16 @@ void TrajBase::minimizeTime(int degreeOpt, int maxIters)
 		double s_v = v_peak / v_max;
 		double s_a = sqrt(a_peak / a_max);
 		double scale = std::max(s_v, s_a);
+		std::cout << "[minimizeTime] iter " << it << " T=" << T
+		          << " v_peak=" << v_peak << " a_peak=" << a_peak
+		          << " s_v=" << s_v << " s_a=" << s_a << " scale=" << scale << std::endl;
 
 		// Only SHRINK (speed up) when there is slack under both limits. If the
 		// trajectory is already at/over a limit (scale >= ~1 -- e.g. the fixed
 		// free-fall acceleration of a perch terminal), leave it: we cannot go
 		// faster without violating the limits.
 		if(scale > 0.98){
+			std::cout << "[minimizeTime] scale>0.98 -> no shrink, stop" << std::endl;
 			break;
 		}
 		scale = std::max(scale, 0.5); // cap the per-iteration shrink for stability
