@@ -249,7 +249,12 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 			if(useVisual){
 				Eigen::Matrix4d H;
 				if(aprilListen.getLanding(&H)){
+					std::cout << "[DIAG] getLanding OK, target H=\n" << H << std::endl;
 					replan_success = replanner.replan(4,time_plan,g_replan_t_off,H);
+				}
+				else{
+					std::cout << "[DIAG] getLanding FAILED (tag not consumed; "
+					          << "using stale/initial plan)" << std::endl;
 				}
 			}
 			else{

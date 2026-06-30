@@ -276,6 +276,8 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	// Surface normal s3 (outward), in the world frame = 3rd column of the target
 	// rotation. e3 is world-up; in NED (z-down) that is (0,0,-1).
 	Eigen::Vector3d s3(H(0,2), H(1,2), H(2,2));
+	std::cout << "[DIAG] calcPerchCond s3 (goal normal used) = "
+	          << s3.transpose() << std::endl;
 	Eigen::Vector3d e3(0.0, 0.0, -1.0);
 	double cos_incl = s3.dot(e3);                       // = cos(inclination)
 	double sin_incl = sqrt(s3(0)*s3(0) + s3(1)*s3(1));  // horizontal length of s3 = sin(inclination)
