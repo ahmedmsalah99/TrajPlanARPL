@@ -14,23 +14,15 @@ apriltag_utils::apriltag_utils(){
 //  - H_TAG rotation is a fixed convention; tagTranslation is its translation offset.
 void apriltag_utils::setExtrinsics(const Eigen::Vector3d& camTranslation, double camTilt,
                                    const Eigen::Vector3d& tagTranslation){
-	Eigen::Matrix3d rot1 = Eigen::Matrix3d::Zero();
-	rot1(0,2) = 1;
-	rot1(1,0) = -1;
-	rot1(2,1) = -1;
-	Eigen::Matrix3d rotTilt = Eigen::AngleAxisd(camTilt, Eigen::Vector3d::UnitX()).toRotationMatrix();
-
-	H_RC = Eigen::Matrix4d::Zero();
-	H_RC.block<3,3>(0,0) = rot1 * rotTilt;
+	// Camera optical frame aligned with the body frame, tilted about the camera
+	// x-axis by camTilt; the tag pose is taken directly in the camera frame. Set
+	// cam_tilt / cam_translation / tag_translation in config to match the rig.
+	H_RC = Eigen::Matrix4d::Identity();
+	H_RC.block<3,3>(0,0) = Eigen::AngleAxisd(camTilt, Eigen::Vector3d::UnitX()).toRotationMatrix();
 	H_RC.block<3,1>(0,3) = camTranslation;
-	H_RC(3,3) = 1;
 
-	H_TAG = Eigen::Matrix4d::Zero();
-	H_TAG(0,1) = -1;
-	H_TAG(1,0) = 1;
-	H_TAG(2,2) = 1;
+	H_TAG = Eigen::Matrix4d::Identity();
 	H_TAG.block<3,1>(0,3) = tagTranslation;
-	H_TAG(3,3) = 1;
 }
 
 void apriltag_utils::setNode(rclcpp::Node::SharedPtr node){
@@ -243,14 +235,5 @@ Eigen::Matrix4d apriltag_utils::WorldRot(joint_pose pose){
 */
 	//std::cout << "Process Apriltag to Homogenous Matrix " <<std::endl;
 	Eigen::Matrix4d H_IT = H_IR*H_RC*H_CT;
-	// Simplified Perch Constraint3
-	//perch_constraint land_point;
-	//land_point.pos = H_IT.block<3,1>(0,3);
-	//std::cout << "Position" << land_point.pos <<std::endl;
-	//land_point.rot =  H_IT.block<3,1>(0,2);
-	//Eigen::Vector3d ea = m.eulerAngles(2, 1, 0);
-	//land_point.rot = m;
-	//TEMPORARY SOLUTION SIMPLY KILL THE Y AXIS 
-	H_IT(1,3) = 0;
-	return H_IT;	
+	return H_IT;
 }
