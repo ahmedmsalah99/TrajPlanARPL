@@ -97,9 +97,13 @@ void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseStamped &msg){
 			//std::cout << tag_read - odom_buffer[index].header.stamp.toSec() <<std::endl;
 			index=(index+1)%BUFFER_SIZE;
 			if(index == circle_start){
-				//flag =0;
-				//std::cout << "Buffer failed 1" <<std::endl;
-				return;
+				// Tag timestamp is at/after the newest buffered odom. This is the
+				// normal case when the detection has ~no latency (e.g. the sim
+				// stamps the tag with the current time, which is slightly newer
+				// than the last odom). Sync to the newest valid odom instead of
+				// dropping the detection (the old behavior failed every time here).
+				index = (circle_start - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+				break;
 			}
 		}
 	}
