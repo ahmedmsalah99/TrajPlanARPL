@@ -177,7 +177,7 @@ class DummyPublisher(Node):
         pts = [(float(flat[i]), float(flat[i + 1]),
                 float(flat[i + 2]), float(flat[i + 3]))
                for i in range(0, len(flat) - 3, 4)]
-        pts = self._densify(pts)
+        # pts = self._densify(pts)
         path = Path()
         path.header.stamp = self.get_clock().now().to_msg()
         path.header.frame_id = self.frame_id

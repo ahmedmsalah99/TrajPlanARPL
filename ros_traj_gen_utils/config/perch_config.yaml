@@ -3,16 +3,16 @@ traj_exe:
     device: "quadrotor"     # vehicle name
     odom_frame: "/odom"      # odometry frame; planner subscribes to <device><odom_frame>
     # odom_frame: "/quadrotor_ukf/control_odom"  # for simulation
-    visual: false            # use visual feedback from an apriltag
+    visual: true            # use visual feedback from an apriltag
     replan: true             # perching uses online replanning
-    display_2D: false        # publish 2D velocity/acceleration paths
+    display_2D: true        # publish 2D velocity/acceleration paths
     # Dynamic limits used for time allocation
-    v_max: 5.0               # max velocity (m/s)
-    a_max: 10.0              # max acceleration (m/s^2)
+    v_max: 1.5               # max velocity (m/s)
+    a_max: 3.0              # max acceleration (m/s^2)
     # Perching parameters
-    max_inclination_accel: 4.0  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
-    impact_normal_vel: 1.0      # vS1: impact speed INTO the surface (m/s)
-    impact_slide_vel: -3.0      # vS3: impact speed ALONG the surface, down-slope (m/s)
+    max_inclination_accel: 1.5  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
+    impact_normal_vel: 0.3      # vS1: impact speed INTO the surface (m/s)
+    impact_slide_vel: -0.5      # vS3: impact speed ALONG the surface, down-slope (m/s)
     min_pitch: 0.5              # inclination below this (rad) -> soft landing
     # eq.(14) approach band (acceleration kept near the target before impact)
     perch_band_q: 0.5           # (1+q) magnitude tolerance of the band
@@ -25,7 +25,7 @@ traj_exe:
     replan_retry_max: 10        # max solve retries before giving up / reverting
     replan_min_seg: 0.5         # segments shorter than this (s) are merged/skipped
     # Field-of-view constraint
-    fov_enable: true            # add the FOV inequality (keep the target in view) during replanning
+    fov_enable: false            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
     # Camera / tag extrinsics (used in visual perching)
     cam_translation: [0.3, 0.0, 0.0]   # camera position offset in the body frame (m)

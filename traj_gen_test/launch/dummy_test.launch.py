@@ -15,10 +15,11 @@ def generate_launch_description():
                 'odom_rate_hz': 50.0,
                 'publish_tag': True,
                 'waypoint_period_s': 0.1,
-                'max_segment_len': 0.5,  # densify waypoints so legs are <= 0.1 m
+                'max_segment_len': 0.1,  # densify waypoints so legs are <= 0.1 m
                 # NED waypoints: z is Down, so negative z = altitude above origin
-                'waypoints': [1.0, 0.0, -1.0, 0.0,
-                              2.0, 1.0, -1.0, 0.0,
+                'waypoints': [
+                    # 0.0, 0.0, 0.0, 0.0,
+                            #   2.0, 0.0, -1.0, 0.0,
                               3.0, 0.0, -1.0, 0.0],
                 'tag_pose' : [3.0, 0.0, -1.0, 0.0,3.14,0.0],
                 'odom_ned':[0.0, 0.0, 0.0,0],
