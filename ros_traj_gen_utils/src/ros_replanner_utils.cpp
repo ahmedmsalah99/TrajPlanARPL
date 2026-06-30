@@ -317,7 +317,7 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	}
 	//SOLVE THE MATRIX REVERT IF  NOT SOLVABLE
 	int count = 0;
-	trajectory->setFullStop();
+	// trajectory->setFullStop();
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 	if(!(trajectory->checkSolved())){
 		trajectory->clear_ineq();

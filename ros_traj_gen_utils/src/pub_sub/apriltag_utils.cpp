@@ -99,7 +99,9 @@ void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseStamped &msg){
 			if(index == circle_start){
 				//flag =0;
 				//std::cout << "Buffer failed 1" <<std::endl;
-				return;
+				// return;
+				index = (circle_start - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+        		break;
 			}
 		}
 	}
