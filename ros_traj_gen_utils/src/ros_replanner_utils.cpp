@@ -316,8 +316,13 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		trajectory->push_joint_ineq_constr(full_ineq_constr);
 	}
 	//SOLVE THE MATRIX REVERT IF  NOT SOLVABLE
+	// Do NOT setFullStop() here: the terminal condition was already chosen above
+	// (calcPerchCond(Target) for perch, setFullStop() for fullStop). Calling
+	// setFullStop() unconditionally at this point overwrote the perch terminal
+	// velocity/acceleration -- which are derived from the (orientation-dependent)
+	// target -- so changing the goal orientation had no effect on the replanned
+	// path. Solve with the terminal condition that was actually set.
 	int count = 0;
-	trajectory->setFullStop();
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 	if(!(trajectory->checkSolved())){
 		trajectory->clear_ineq();
