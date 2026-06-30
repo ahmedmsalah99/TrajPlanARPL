@@ -161,6 +161,7 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	//Calculate and set the next point
 	if(curr_v == future_v.size()){
 		//No need to replan the trajectory
+		std::cout << "no need to replan the trajectory, " << std::endl;
 		return false;
 	}
 	//Anticipate your current position 
@@ -225,6 +226,7 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	const double kSegMergeEps = 0.0015; // tiny slack when merging a consumed segment's time
 	if((curr_v == future_v.size()-1)&&(segmentTimes[curr_v] < minSegTime)){
 		curr_v+=1;
+		std::cout << "can't replan future_v.size() " << future_v.size() << " and segmentTimes[curr_v] " << segmentTimes[curr_v] << " while minSegTime " <<minSegTime << std::endl;
 		return false;
 	}
 

@@ -249,7 +249,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 			if(useVisual){
 				Eigen::Matrix4d H;
 				if(aprilListen.getLanding(&H)){
-					std::cout << "[DIAG] getLanding OK, target H=\n" << H << std::endl;
+					// std::cout << "[DIAG] getLanding OK, target H=\n" << H << std::endl;
 					replan_success = replanner.replan(4,time_plan,g_replan_t_off,H);
 				}
 				else{
@@ -269,10 +269,11 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 				visualize_paths(traj_use);
 			}
 			double replan_timer_end =  node->now().seconds() ;
-			std::cout << "Time ELAPSED " <<replan_timer_end-replan_timer <<std::endl;
+			// std::cout << "Time ELAPSED " <<replan_timer_end-replan_timer <<std::endl;
 			time_plan = 0.0;
 		}
 	}
+	std::cout << "replanning time done, take a hover" << std::endl;
 	controller->setEND();
 	auto trigger = std::make_shared<std_srvs::srv::Trigger::Request>();
 	hover_->async_send_request(trigger);

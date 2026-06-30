@@ -7,11 +7,11 @@ traj_exe:
     replan: true             # perching uses online replanning
     display_2D: true        # publish 2D velocity/acceleration paths
     # Dynamic limits used for time allocation
-    v_max: 1.5               # max velocity (m/s)
-    a_max: 3.0              # max acceleration (m/s^2)
+    v_max: 15.0               # max velocity (m/s)
+    a_max: 5.0              # max acceleration (m/s^2)
     # Perching parameters
     max_inclination_accel: 1.5  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
-    impact_normal_vel: 0.3      # vS1: impact speed INTO the surface (m/s)
+    impact_normal_vel: 0.0      # vS1: impact speed INTO the surface (m/s)
     impact_slide_vel: -0.5      # vS3: impact speed ALONG the surface, down-slope (m/s)
     min_pitch: 0.5              # inclination below this (rad) -> soft landing
     # eq.(14) approach band (acceleration kept near the target before impact)
@@ -28,8 +28,8 @@ traj_exe:
     fov_enable: false            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
     # Camera / tag extrinsics (used in visual perching)
-    cam_translation: [0.3, 0.0, 0.0]   # camera position offset in the body frame (m)
-    cam_tilt: 0.25                      # camera mount tilt (rad); shared by the FOV optical axis and the apriltag extrinsic
+    cam_translation: [0.0, 0.0, 0.0]   # camera position offset in the body frame (m)
+    cam_tilt: 0.0                    # camera mount tilt (rad); shared by the FOV optical axis and the apriltag extrinsic
     tag_translation: [0.0, 0.0, 0.0]    # tag -> target translation offset (m)
     # 4x4 target (row-major); 90 degree pitch interception by default:
     # row1: 0  0 -1 0
