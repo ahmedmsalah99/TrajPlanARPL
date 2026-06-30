@@ -1,0 +1,61 @@
+traj_exe:
+  ros__parameters:
+    device: "/quadrotor"     # vehicle name (matches the dummy publisher)
+    odom_frame: "/odom"
+    visual: true             # use the AprilTag (dummy tag_pose) as the goal
+    replan: true             # perching uses online replanning
+    display_2D: false
+    # Dynamic limits used for time allocation
+    v_max: 1.5
+    a_max: 3.0
+    # Perching parameters (gentle, for visualization)
+    max_inclination_accel: 1.5
+    impact_normal_vel: 0.3
+    impact_slide_vel: -0.5
+    min_pitch: 0.5
+    # eq.(14) approach band
+    perch_band_q: 0.5
+    perch_window: 0.5
+    perch_band_eps: 0.2
+    # Replanner timing / retry
+    replan_time: 0.04
+    replan_t_off: 0.05
+    replan_retry_step: 0.2
+    replan_retry_max: 10
+    replan_min_seg: 0.5
+    # Field-of-view constraint (off until task 3)
+    fov_enable: false
+    fov_margin: 0.0
+    # --- Extrinsics: SIMPLE/IDENTITY convention for the sim/dummy ---
+    # camera optical frame == body frame, tag pose given directly in that frame.
+    # No axis swaps, no Y-zeroing. The dummy must use the SAME cam_translation
+    # (its base_link->camera offset) so both agree on the world target.
+    simple_extrinsics: true
+    cam_translation: [0.0, 0.0, 0.0]
+    cam_tilt: 0.0
+    tag_translation: [0.0, 0.0, 0.0]
+    # NOTE: under simple_extrinsics the tag's orientation maps directly to the
+    # goal surface normal s3 (= the tag rotation's 3rd column, in NED). Set the
+    # dummy tag_pose rpy to choose the perch surface:
+    #   flat pad  (normal up,   s3=(0,0,-1)): rpy = (3.14159, 0, 0)
+    #   vertical wall facing -N (s3=(-1,0,0)): rpy = (0, -1.5708, 0)
+    # target_pose below only seeds the FIRST plan (before any tag is received);
+    # the AprilTag overrides both goal position and orientation on every replan.
+    # Default seed = 90 deg vertical interception (row-major 4x4).
+    target_pose:
+      - 0.0
+      - 0.0
+      - -1.0
+      - 0.0
+      - 0.0
+      - 1.0
+      - 0.0
+      - 0.0
+      - 1.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
