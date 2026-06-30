@@ -337,7 +337,13 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	//std::cout << "End SM Solve" <<std::endl;
 	while (!trajectory->checkSolved()){
 		//std::cout << "REPLAN NEED MORE TIME" <<std::endl;
-		trajectory->segmentTimes[curr_v] +=retryStep;
+		// trajectory->segmentTimes here is rebuilt to start at index 0 (segments
+		// curr_v..end), so indexing [curr_v] walked out of bounds as curr_v grew
+		// -- a heap write past the vector end that intermittently corrupted the
+		// trajectory and made it collapse. Add to every remaining segment (0-based).
+		for(int i = 0; i < trajectory->segmentTimes.size(); i++){
+			trajectory->segmentTimes[i] += retryStep;
+		}
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
 		if(count == retryMax){
