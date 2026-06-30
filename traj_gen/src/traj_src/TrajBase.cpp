@@ -87,6 +87,13 @@ void TrajBase::minimizeTime(int degreeOpt, int maxIters)
 		return; // no dynamic limits configured -> nothing to optimize against
 	}
 	const int kSamples = 200;
+	// The acceleration near the trajectory end can be pinned by a terminal
+	// boundary condition (e.g. a perch's ~g free-fall impact accel), which is NOT
+	// time-scalable and is allowed to exceed a_max. Ignore that approach window
+	// for the a_max check, otherwise it would veto every shrink and the path stays
+	// at the conservative autogen allocation. Velocity is checked over the whole
+	// trajectory (the terminal velocity is small, so it isn't the peak).
+	const double kTermAccelIgnoreFrac = 0.2; // ignore the last 20% of time for accel
 	for(int it = 0; it < maxIters; it++){
 		if(!checkSolved()){
 			return; // need a solved trajectory to measure; keep what we have
@@ -95,15 +102,19 @@ void TrajBase::minimizeTime(int degreeOpt, int maxIters)
 		for(size_t s = 0; s < segmentTimes.size(); s++){ T += segmentTimes[s]; }
 		if(T <= 1e-6){ return; }
 
-		// Peak |velocity| and |acceleration| over x,y,z along the trajectory.
+		// Peak |velocity| (whole trajectory) and |acceleration| (excluding the
+		// terminal approach window) over x,y,z.
+		double a_cutoff = T * (1.0 - kTermAccelIgnoreFrac);
 		double v_peak = 0.0, a_peak = 0.0;
 		for(int k = 0; k <= kSamples; k++){
 			double t = T * (double)k / (double)kSamples;
 			Eigen::MatrixXd st = evalTraj(t);
 			double v = st.block(1, 0, 1, 3).norm();
-			double a = st.block(2, 0, 1, 3).norm();
 			if(v > v_peak){ v_peak = v; }
-			if(a > a_peak){ a_peak = a; }
+			if(t <= a_cutoff){
+				double a = st.block(2, 0, 1, 3).norm();
+				if(a > a_peak){ a_peak = a; }
+			}
 		}
 
 		// Uniform time scale s: velocity ~ 1/s, acceleration ~ 1/s^2.
