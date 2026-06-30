@@ -246,11 +246,11 @@ void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint
                     C,
                     ineq_qp.d,ineq_qp.f,
 					sol,ignoreUnknownError)){
-		std::cout << "QP successful generation" << std::endl;
+		// std::cout << "QP successful generation" << std::endl;
 		traj_valid->operator[](dimension) = true; 
 	}
 	else{
-		std::cout << "QP Failed generation" << std::endl;
+		// std::cout << "QP Failed generation" << std::endl;
 		
 	}
     //Eigen::MatrixXd Cost = sol.transpose() * Obj * sol;
@@ -610,7 +610,7 @@ Eigen::MatrixXd QPpolyTraj::generateObjFun(int minDeriv)
 
 QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 {
-	std::cout << "entered genInEqConstraint " << std::endl;
+	// std::cout << "entered genInEqConstraint " << std::endl;
 	double dt = 0.01; // Make a class member
 	int numConst =0;
     int coeffNum = (vertices.size() - 1) *  polyOrder;
