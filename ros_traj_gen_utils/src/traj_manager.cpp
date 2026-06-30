@@ -111,11 +111,7 @@ void init_params(){
 	// cam_tilt is the single camera-tilt knob (also used by the FOV optical axis).
 	// The apriltag extrinsic uses the opposite sign convention (documented rig
 	// rot2 = Rx(-tilt)), so negate it here.
-	// simple_extrinsics: camera optical frame == body frame and the tag is given
-	// directly in that frame (identity rotations, no Y-zeroing) -- use for the
-	// sim/dummy. Default false keeps the real-rig axis swaps.
-	bool simple_extr = getParamOr<bool>("simple_extrinsics", false);
-	aprilListen.setExtrinsics(camTrans, -cam_tilt, tagTrans, simple_extr);
+	aprilListen.setExtrinsics(camTrans, -cam_tilt, tagTrans);
 
 	vehicle_name = getParamOr<std::string>("device", std::string(""));
 	useVisual = getParamOr<bool>("visual", false);

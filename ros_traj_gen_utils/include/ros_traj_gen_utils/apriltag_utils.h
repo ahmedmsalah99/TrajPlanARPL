@@ -34,11 +34,6 @@ nav_msgs::msg::Odometry current_heading;
 geometry_msgs::msg::PoseStamped current_target;
 Eigen::Matrix4d H_RC;
 Eigen::Matrix4d H_TAG;
-// When true, the camera optical frame == body frame and the tag is expressed
-// directly in the body/world convention (identity H_RC/H_TAG rotations, no
-// Y-zeroing in WorldRot). Use for sim/dummy where the camera is identity-
-// attached to the drone. Default false preserves the real-rig axis swaps.
-bool simpleExtrinsics = false;
 //Timer Function to stuff the cricle buffer
 
 public:
@@ -48,7 +43,7 @@ int flag = 0;
 void setNode(rclcpp::Node::SharedPtr node);
 //Configure camera/tag extrinsics: camera offset in body frame, camera tilt about
 //its x-axis (rad), and the tag->target translation offset.
-void setExtrinsics(const Eigen::Vector3d& camTranslation, double camTilt, const Eigen::Vector3d& tagTranslation, bool identityRot = false);
+void setExtrinsics(const Eigen::Vector3d& camTranslation, double camTilt, const Eigen::Vector3d& tagTranslation);
 //Takes a stdTrajectory MSG and stores it in the private trajectory variable
 void aprilListen(const geometry_msgs::msg::PoseStamped &msg);
 void syncCallback(const geometry_msgs::msg::PoseArray &msg1,const nav_msgs::msg::Odometry &msg2);

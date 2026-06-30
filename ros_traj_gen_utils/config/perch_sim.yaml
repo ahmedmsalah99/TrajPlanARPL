@@ -26,16 +26,14 @@ traj_exe:
     # Field-of-view constraint (off until task 3)
     fov_enable: false
     fov_margin: 0.0
-    # --- Extrinsics: SIMPLE/IDENTITY convention for the sim/dummy ---
-    # camera optical frame == body frame, tag pose given directly in that frame.
-    # No axis swaps, no Y-zeroing. The dummy must use the SAME cam_translation
-    # (its base_link->camera offset) so both agree on the world target.
-    simple_extrinsics: true
+    # --- Extrinsics (camera optical frame == body frame) ---
+    # The dummy must use the SAME cam_translation (its base_link->camera offset)
+    # so both agree on the world target.
     cam_translation: [0.0, 0.0, 0.0]
     cam_tilt: 0.0
     tag_translation: [0.0, 0.0, 0.0]
-    # NOTE: under simple_extrinsics the tag's orientation maps directly to the
-    # goal surface normal s3 (= the tag rotation's 3rd column, in NED). Set the
+    # NOTE: the tag's orientation maps directly to the goal surface normal
+    # s3 (= the tag rotation's 3rd column, in NED). Set the
     # dummy tag_pose rpy to choose the perch surface:
     #   flat pad  (normal up,   s3=(0,0,-1)): rpy = (3.14159, 0, 0)
     #   vertical wall facing -N (s3=(-1,0,0)): rpy = (0, -1.5708, 0)
