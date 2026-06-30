@@ -3,6 +3,22 @@
 #include <iostream>
 using namespace std;
 
+// Per-segment retry increment derived from geometry: the minimum time to fly
+// segment i in a straight line at v_max, |p_{i+1} - p_i| / v_max (xyz only).
+// Replaces the old fixed retryStep so each segment gets time proportional to its
+// own length when a solve is infeasible. Falls back to `fallback` seconds if
+// v_max is unset.
+static double segRetryInc(TrajBase* traj, int i, double fallback){
+	double v_max = traj->limits.size() > 1 ? traj->limits[1] : 0.0;
+	if(!(v_max > 1e-6)){
+		return fallback;
+	}
+	Eigen::VectorXd a, b;
+	traj->vertices[i].getPos(&a);
+	traj->vertices[i+1].getPos(&b);
+	return (b.head(3) - a.head(3)).norm() / v_max;
+}
+
 ros_replan_utils::ros_replan_utils(){
 	
 }
@@ -71,7 +87,7 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 	while (!(trajectory->checkSolved())){
 		for(int i = 0; i < trajectory->segmentTimes.size();i++){
-			trajectory->segmentTimes[i] +=retryStep;
+			trajectory->segmentTimes[i] += segRetryInc(trajectory, i, retryStep);
 		}
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
@@ -124,7 +140,7 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 	while (!(trajectory->checkSolved())){
 		for(int i = 0; i < trajectory->segmentTimes.size();i++){
-			trajectory->segmentTimes[i] +=retryStep;
+			trajectory->segmentTimes[i] += segRetryInc(trajectory, i, retryStep);
 		}
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
@@ -329,7 +345,14 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	//std::cout << "End SM Solve" <<std::endl;
 	while (!trajectory->checkSolved()){
 		//std::cout << "REPLAN NEED MORE TIME" <<std::endl;
-		trajectory->segmentTimes[curr_v] +=retryStep;
+		// trajectory->segmentTimes here is rebuilt to start at index 0 (segments
+		// curr_v..end), so indexing [curr_v] was out of bounds as curr_v grew --
+		// a heap write past the vector end that corrupted the trajectory and made
+		// it collapse intermittently. Add the geometry-derived increment to every
+		// remaining segment instead.
+		for(int i = 0; i < trajectory->segmentTimes.size();i++){
+			trajectory->segmentTimes[i] += segRetryInc(trajectory, i, retryStep);
+		}
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
 		if(count == retryMax){
