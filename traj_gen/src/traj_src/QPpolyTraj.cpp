@@ -188,11 +188,12 @@ Eigen::MatrixXd QPpolyTraj::SMsolve(int minDeriv)
 		traj_valid[3] = true; 
 	}
 	else{
-		//std::cout << "QP Failed generation" << std::endl;
-		traj_valid[0] = false; 
-		traj_valid[1] = false; 
-		traj_valid[2] = false; 
-		traj_valid[3] = false; 		
+		std::cout << "QP Failed generation [joint solve, all axes]"
+		          << " numIneqRows=" << qp_ineq_constr.d.rows() << std::endl;
+		traj_valid[0] = false;
+		traj_valid[1] = false;
+		traj_valid[2] = false;
+		traj_valid[3] = false;
 	}
     /*
 	ooqpei::OoqpEigenInterface::solve(Obj, g0, 
@@ -241,17 +242,19 @@ void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint
 	std::cout << "d: " << ineq_qp.d << std::endl;
    	std::cout << "f: " << ineq_qp.f << std::endl;
 	*/
+    static const char* kAxisName[4] = {"x", "y", "z", "yaw"};
+    const char* axisName = (dimension >= 0 && dimension < 4) ? kAxisName[dimension] : "?";
     if(ooqpei::OoqpEigenInterface::solve(Obj, g0 ,
                    AooQP, b,
                     C,
                     ineq_qp.d,ineq_qp.f,
 					sol,ignoreUnknownError)){
-		std::cout << "QP successful generation" << std::endl;
-		traj_valid->operator[](dimension) = true; 
+		std::cout << "QP successful generation [dim=" << dimension << " (" << axisName << ")]" << std::endl;
+		traj_valid->operator[](dimension) = true;
 	}
 	else{
-		std::cout << "QP Failed generation" << std::endl;
-		
+		std::cout << "QP Failed generation [dim=" << dimension << " (" << axisName << ")]"
+		          << " numIneqRows=" << ineq_qp.d.rows() << std::endl;
 	}
     //Eigen::MatrixXd Cost = sol.transpose() * Obj * sol;
 	//std::cout << "QP cost:" << Cost<< std::endl;
