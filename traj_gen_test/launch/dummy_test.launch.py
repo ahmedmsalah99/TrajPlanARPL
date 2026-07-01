@@ -23,6 +23,10 @@ def generate_launch_description():
                               3.0, 0.0, -1.0, 0.0],
                 'tag_pose' : [3.0, 0.0, -1.0, 0.0,0.3,0.0],
                 'odom_ned':[0.0, 0.0, 0.0,0],
+                # 'static' reports odom_ned forever (no real motion feedback);
+                # 'advance' echoes the planner's own position_cmd back as odom,
+                # so replans see genuine progress toward the goal.
+                'odom_mode': 'advance',
                 'publish_tf': True,      # publish TF so RViz can resolve the frames
                 'fixed_frame': 'map',    # set RViz Fixed Frame to this
                 'rviz_enu_flip': True,   # flip fixed_frame->planner so NED shows upright

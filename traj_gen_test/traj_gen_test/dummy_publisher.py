@@ -19,6 +19,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from px4_msgs.msg import VehicleOdometry
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped, TransformStamped
+from quadrotor_msgs.msg import PositionCommand
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
 
 
@@ -33,8 +34,16 @@ class DummyPublisher(Node):
         self.declare_parameter('tag_rate_hz', 20.0)
         # 0.0 -> publish the waypoints once (after a short delay); >0 -> repeat at this period (s)
         self.declare_parameter('waypoint_period_s', 0.1)
-        # hover position the dummy reports, in PX4 NED (x=N, y=E, z=Down)
+        # hover position the dummy reports, in PX4 NED (x=N, y=E, z=Down). Used
+        # as-is in 'static' odom_mode, and as the initial/fallback position in
+        # 'advance' mode until the first position_cmd is received.
         self.declare_parameter('odom_ned', [0.0, 0.0, 0.0])
+        # 'static'  -> always report odom_ned (a fixed hover); the planner's
+        #              replan loop can never see real progress toward the goal.
+        # 'advance' -> close the loop: report position/velocity/yaw from the
+        #              planner's own position_cmd (assumes the vehicle tracks
+        #              it perfectly), so replans see genuine progress.
+        self.declare_parameter('odom_mode', 'static')
         # waypoints as a flat list [x, y, z, yaw, x, y, z, yaw, ...] in the world frame.
         # The planner is NED-native, so z is Down: negative z = altitude above origin.
         self.declare_parameter('waypoints', [1.0, 0.0, -1.0, 0.0,
@@ -65,6 +74,16 @@ class DummyPublisher(Node):
         self.rviz_enu_flip = bool(self.get_parameter('rviz_enu_flip').value)
         self.max_segment_len = float(self.get_parameter('max_segment_len').value)
         self.cam_translation = list(self.get_parameter('cam_translation').value)
+        self.odom_mode = self.get_parameter('odom_mode').value
+
+        # Latest position_cmd, in 'advance' mode (position/velocity in NED, yaw
+        # in rad). None until the first command arrives -- publish_odom falls
+        # back to odom_ned until then.
+        self._cmd = None
+        if self.odom_mode == 'advance':
+            self.cmd_sub = self.create_subscription(
+                PositionCommand, self.device + '/position_cmd',
+                self._on_position_cmd, 10)
 
         if self.publish_tf:
             # static transforms: fixed_frame -> {planner frames}, and a camera frame
@@ -114,9 +133,9 @@ class DummyPublisher(Node):
         self.wp_timer = self.create_timer(interval, self.publish_waypoints)
 
         self.get_logger().info(
-            'Dummy publisher up: odom -> /fmu/out/vehicle_odometry, '
+            'Dummy publisher up (odom_mode=%s): odom -> /fmu/out/vehicle_odometry, '
             'waypoints -> %s/waypoints%s' %
-            (self.device, ', tag -> /tags_features_extractor/tag_pose'
+            (self.odom_mode, self.device, ', tag -> /tags_features_extractor/tag_pose'
              if bool(self.get_parameter('publish_tag').value) else ''))
 
     def now_us(self):
@@ -141,14 +160,37 @@ class DummyPublisher(Node):
         t.transform.rotation.w = float(quat[3])
         return t
 
+    def _on_position_cmd(self, msg):
+        # PositionCommand fields are already NED (the planner is NED-native).
+        self._cmd = {
+            'pos': (msg.position.x, msg.position.y, msg.position.z),
+            'vel': (msg.velocity.x, msg.velocity.y, msg.velocity.z),
+            'yaw': msg.yaw,
+        }
+
     def publish_odom(self):
-        ned = list(self.get_parameter('odom_ned').value)
+        if self.odom_mode == 'advance' and self._cmd is not None:
+            # Closed loop: report the planner's own commanded position/velocity
+            # back as odometry (assumes perfect tracking), so the replan loop
+            # sees genuine progress toward the goal instead of a fixed point.
+            pos = self._cmd['pos']
+            vel = self._cmd['vel']
+            yaw = self._cmd['yaw']
+        else:
+            # 'static' mode, or 'advance' before the first command arrives.
+            ned = list(self.get_parameter('odom_ned').value)
+            pos = (ned[0], ned[1], ned[2])
+            vel = (0.0, 0.0, 0.0)
+            yaw = 0.0
+
+        qz, qw = math.sin(yaw / 2.0), math.cos(yaw / 2.0)  # yaw-only quaternion
+
         msg = VehicleOdometry()
         msg.timestamp = self.now_us()
         msg.timestamp_sample = msg.timestamp
-        msg.position = [float(ned[0]), float(ned[1]), float(ned[2])]
-        msg.q = [1.0, 0.0, 0.0, 0.0]          # [w, x, y, z] identity
-        msg.velocity = [0.0, 0.0, 0.0]
+        msg.position = [float(pos[0]), float(pos[1]), float(pos[2])]
+        msg.q = [float(qw), 0.0, 0.0, float(qz)]  # [w, x, y, z]
+        msg.velocity = [float(vel[0]), float(vel[1]), float(vel[2])]
         msg.angular_velocity = [0.0, 0.0, 0.0]
         self.odom_pub.publish(msg)
 
@@ -160,10 +202,11 @@ class DummyPublisher(Node):
             t.header.stamp = self.get_clock().now().to_msg()
             t.header.frame_id = self.frame_id
             t.child_frame_id = 'base_link'
-            t.transform.translation.x = float(ned[0])
-            t.transform.translation.y = float(ned[1])
-            t.transform.translation.z = float(ned[2])
-            t.transform.rotation.w = 1.0
+            t.transform.translation.x = float(pos[0])
+            t.transform.translation.y = float(pos[1])
+            t.transform.translation.z = float(pos[2])
+            t.transform.rotation.z = float(qz)
+            t.transform.rotation.w = float(qw)
             self.tf_bcast.sendTransform(t)
 
     def _densify(self, pts):
