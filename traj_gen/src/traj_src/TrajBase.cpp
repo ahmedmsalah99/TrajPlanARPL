@@ -491,16 +491,23 @@ void TrajBase::applyMinAltitude(){
 	// segment length. Call this after autogenTimeSegment()/segmentTimes is set
 	// for this plan.
 	if(segmentTimes.size() != vertices.size() - 1){
-		std::cout << "[applyMinAltitude] segmentTimes not sized to vertices yet"
-		          << " (call after segment times are set for this plan) -- skipping"
+		std::cout << "[MIN_ALTITUDE] SKIPPED: segmentTimes not sized to vertices yet"
+		          << " (segmentTimes=" << segmentTimes.size()
+		          << " vertices=" << vertices.size()
+		          << ") -- call after segment times are set for this plan"
 		          << std::endl;
 		return;
 	}
 
 	// Effectively unbounded on the unconstrained dimensions/direction; the QP
 	// needs a finite box (d <= Cx <= f), so use a bound far outside any
-	// physically reachable position instead of true infinity.
-	const double kUnbounded = 1e6;
+	// physically reachable position instead of true infinity. Keep this modest
+	// (not e.g. 1e6): positions here are O(1-10) m, and mixing a wildly
+	// different scale into the same QP as the real O(1-10) constraints
+	// ill-conditions the interior-point solver, which can fail to converge
+	// even when the true feasible region is fine (matches
+	// kEmptyIneqBound=0.1's small-and-scaled convention elsewhere).
+	const double kUnbounded = 100.0;
 
 	// NED: altitude above the world origin = -z, so a minimum altitude is an
 	// UPPER bound on z (z <= -minAltitude). Only z (index 2) is constrained;
@@ -530,6 +537,9 @@ void TrajBase::applyMinAltitude(){
 		c.InEqDim(2) = 1;
 		vertices[i].addInEqualityConstraint(c);
 	}
+	std::cout << "[MIN_ALTITUDE] applied: minAlt=" << minAltitude
+	          << " (z <= " << -minAltitude << ") across "
+	          << (vertices.size() - 1) << " segment(s)" << std::endl;
 }
 
 /*Virtual Stubs*/
