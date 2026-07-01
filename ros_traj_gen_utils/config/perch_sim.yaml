@@ -26,6 +26,9 @@ traj_exe:
     # Field-of-view constraint (off until task 3)
     fov_enable: false
     fov_margin: 0.0
+    # Minimum altitude enforced across the whole trajectory (NED: upper bound on z)
+    min_altitude_enable: false
+    min_altitude: 0.3
     # --- Extrinsics (camera optical frame == body frame) ---
     # The dummy must use the SAME cam_translation (its base_link->camera offset)
     # so both agree on the world target.

@@ -58,13 +58,16 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 	else{
 		trajectory->calcPerchCond(prevTarget);
 	}
-       
+
 	//set Time
-        //std::cout << " initially generate segment time " <<std::endl; 
+        //std::cout << " initially generate segment time " <<std::endl;
 	trajectory->autogenTimeSegment();
+	// applyMinAltitude uses each segment's exact duration as its constraint
+	// window, so it must run after segmentTimes is populated.
+	trajectory->applyMinAltitude();
 	segmentTimes = trajectory->segmentTimes;
 
-	//segmentTimes[0] += 0.6;	
+	//segmentTimes[0] += 0.6;
 	//segmentTimes[1] += 0.3;
 	//trajectory.segmentTimes = segmentTimes;
 	int count = 0;
@@ -121,8 +124,11 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 	prevTarget = target;
 	fullStop=0;
 	//set Time
-        //std::cout << " initially generate segment time " <<std::endl; 
+        //std::cout << " initially generate segment time " <<std::endl;
 	trajectory->autogenTimeSegment();
+	// applyMinAltitude uses each segment's exact duration as its constraint
+	// window, so it must run after segmentTimes is populated.
+	trajectory->applyMinAltitude();
 	segmentTimes = trajectory->segmentTimes;
 	int count = 0;
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
@@ -267,13 +273,14 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	for (int i = curr_v;i < segmentTimes.size();i++){
 		trajectory->segmentTimes.push_back(segmentTimes[i]);
 	}
+	trajectory->applyMinAltitude();
 	if(fullStop ==1){
 		trajectory->setFullStop();
 	}
 	else{
 		std::cout << " TARGET " << Target <<std::endl;
 		trajectory->calcPerchCond(Target);
-	}		
+	}
 
 	//GENERATE FOV CONDITION
 	if(fovEnable){

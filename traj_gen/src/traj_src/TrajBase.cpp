@@ -474,6 +474,52 @@ void TrajBase::setFovMargin(double m){
 	fovMargin = m;
 }
 
+void TrajBase::setMinAltitude(bool enable, double minAlt){
+	minAltitudeEnabled = enable;
+	minAltitude = minAlt;
+}
+
+void TrajBase::applyMinAltitude(){
+	if(!minAltitudeEnabled){
+		return;
+	}
+	// Requires segmentTimes to already be sized to the current vertices (one
+	// entry per segment): the exact segment duration is used as the window
+	// below, both to cover the WHOLE segment and to keep genInEqConstraint's
+	// row-count estimate (which is based on the raw, un-clamped timeOffset,
+	// not the actual sampled window) proportional to the real segment length.
+	// Call this after autogenTimeSegment()/segmentTimes is set for this plan.
+	if(segmentTimes.size() != vertices.size() - 1){
+		std::cout << "[applyMinAltitude] segmentTimes not sized to vertices yet"
+		          << " (call after segment times are set for this plan) -- skipping"
+		          << std::endl;
+		return;
+	}
+
+	// Effectively unbounded on the unconstrained dimensions/direction; the QP
+	// needs a finite box (d <= Cx <= f), so use a bound far outside any
+	// physically reachable position instead of true infinity.
+	const double kUnbounded = 1e6;
+
+	// NED: altitude above the world origin = -z, so a minimum altitude is an
+	// UPPER bound on z (z <= -minAltitude). Only z (index 2) is constrained;
+	// x, y, yaw are left free. Each vertex i (i>=1) anchors its constraint to
+	// the segment ending at it (segmentTimes[i-1]); using that segment's exact
+	// duration as timeOffset makes the sampled window start at exactly time=0
+	// (covering the whole segment) with no over/under allocation.
+	for(size_t i = 1; i < vertices.size(); i++){
+		waypoint_ineq_const c;
+		c.derivOrder = 0; // position
+		c.timeOffset = segmentTimes[i-1];
+		c.lower = Eigen::Vector4d::Constant(-kUnbounded);
+		c.upper = Eigen::Vector4d::Constant(kUnbounded);
+		c.upper(2) = -minAltitude;
+		c.InEqDim = Eigen::Vector4d::Zero();
+		c.InEqDim(2) = 1;
+		vertices[i].addInEqualityConstraint(c);
+	}
+}
+
 /*Virtual Stubs*/
 
 

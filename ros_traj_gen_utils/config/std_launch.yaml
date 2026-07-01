@@ -27,6 +27,9 @@ traj_exe:
     # Field-of-view constraint
     fov_enable: true            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
+    # Minimum altitude enforced across the whole trajectory (NED: upper bound on z)
+    min_altitude_enable: false  # add the min-altitude inequality to every segment
+    min_altitude: 0.3           # metres above the world origin
     # Camera / tag extrinsics (used in visual perching)
     cam_translation: [0.3, 0.0, 0.0]   # camera position offset in the body frame (m)
     cam_tilt: 0.25                      # camera mount tilt (rad); shared by the FOV optical axis and the apriltag extrinsic
