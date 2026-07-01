@@ -484,11 +484,12 @@ void TrajBase::applyMinAltitude(){
 		return;
 	}
 	// Requires segmentTimes to already be sized to the current vertices (one
-	// entry per segment): the exact segment duration is used as the window
-	// below, both to cover the WHOLE segment and to keep genInEqConstraint's
-	// row-count estimate (which is based on the raw, un-clamped timeOffset,
-	// not the actual sampled window) proportional to the real segment length.
-	// Call this after autogenTimeSegment()/segmentTimes is set for this plan.
+	// entry per segment): the segment duration is used to size the window below
+	// (see the interior-only rationale further down), and keeps
+	// genInEqConstraint's row-count estimate (based on the raw, un-clamped
+	// timeOffset, not the actual sampled window) proportional to the real
+	// segment length. Call this after autogenTimeSegment()/segmentTimes is set
+	// for this plan.
 	if(segmentTimes.size() != vertices.size() - 1){
 		std::cout << "[applyMinAltitude] segmentTimes not sized to vertices yet"
 		          << " (call after segment times are set for this plan) -- skipping"
@@ -504,13 +505,24 @@ void TrajBase::applyMinAltitude(){
 	// NED: altitude above the world origin = -z, so a minimum altitude is an
 	// UPPER bound on z (z <= -minAltitude). Only z (index 2) is constrained;
 	// x, y, yaw are left free. Each vertex i (i>=1) anchors its constraint to
-	// the segment ending at it (segmentTimes[i-1]); using that segment's exact
-	// duration as timeOffset makes the sampled window start at exactly time=0
-	// (covering the whole segment) with no over/under allocation.
+	// the segment ending at it (segmentTimes[i-1]).
+	//
+	// genInEqConstraint samples the window [time-timeOffset, time), i.e. it
+	// already excludes the segment's END instant (strict '<'). Using the exact
+	// segment duration as timeOffset would start sampling at exactly time=0 --
+	// the segment's START instant, which is the PREVIOUS vertex's position.
+	// That vertex's position is a separate, hard EQUALITY constraint (e.g. the
+	// live start position from odom, or an intermediate waypoint) that may
+	// legitimately sit below the floor (a ground-level takeoff, a low perch/
+	// landing goal) -- constraining it too would make the QP infeasible on
+	// every solve. Pull the window in by one sample step (dt=0.01, matching
+	// genInEqConstraint) so BOTH endpoints of every segment are excluded,
+	// leaving the interior of the segment constrained.
+	const double kSampleDt = 0.01; // must match genInEqConstraint's dt
 	for(size_t i = 1; i < vertices.size(); i++){
 		waypoint_ineq_const c;
 		c.derivOrder = 0; // position
-		c.timeOffset = segmentTimes[i-1];
+		c.timeOffset = std::max(0.0, segmentTimes[i-1] - kSampleDt);
 		c.lower = Eigen::Vector4d::Constant(-kUnbounded);
 		c.upper = Eigen::Vector4d::Constant(kUnbounded);
 		c.upper(2) = -minAltitude;
