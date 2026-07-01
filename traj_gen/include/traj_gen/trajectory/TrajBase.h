@@ -57,6 +57,10 @@ protected:
 	double perchBandEps = 0.2;        // small additive slack so the band never collapses to a point
 	double fovCamTilt = 0.25;         // FOV camera mount tilt (rad)
 	double fovMargin = 0.0;           // FOV safety margin: keep linearized margin >= this
+	// Minimum-altitude constraint: enforced as an upper bound on z across every
+	// segment of the trajectory (NED: altitude above the origin = -z).
+	bool minAltitudeEnabled = false;
+	double minAltitude = 0.0;         // metres above the world origin
 	bool constrainV = true;
 	float duration = 0.1;
 
@@ -117,6 +121,16 @@ public:
 	void setFovCamTilt(double tilt);
 	//Configure the FOV safety margin (linearized margin kept >= this)
 	void setFovMargin(double m);
+	//Configure the minimum-altitude constraint: when enabled, z is upper-bounded
+	//across every segment of the trajectory so the world altitude (-z in NED)
+	//never drops below minAlt (metres). Disabled by default.
+	void setMinAltitude(bool enable, double minAlt);
+	//Push the minimum-altitude inequality onto every vertex (1..end) of the
+	//CURRENT vertex list. Call after segmentTimes is set for this plan (e.g.
+	//after autogenTimeSegment(), or after the replan-rebuilt segmentTimes) --
+	//it uses each segment's exact duration as the constraint window. No-op if
+	//the constraint is disabled or segmentTimes isn't sized to vertices yet.
+	void applyMinAltitude();
 
 	//Set Constraints
 	//pushes a waypoint into the list
