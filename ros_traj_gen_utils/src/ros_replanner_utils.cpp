@@ -347,7 +347,7 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
 		if(count == retryMax){
-			//revert to previous trajectory 
+			//revert to previous trajectory
 			trajectory->overideSolve();
 			trajectory->vertices = vertices_prev;
 			trajectory->coeffSolved = coeffSolved_prev;
@@ -355,6 +355,26 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 			std::cout << " could not plan flight" << std::endl;
 			return false;
 		}
+	}
+	// Sync back any time growth from the retry loop. `segmentTimes` (this class's
+	// member) is a persistent, ABSOLUTE-indexed array across the whole waypoint
+	// list -- curr_v indexes into it every call, and trajectory->segmentTimes is
+	// only ever a transient 0-based slice [curr_v..end] of it, rebuilt each call.
+	// The retry loop above grows trajectory->segmentTimes but never writes that
+	// growth back, so `segmentTimes` silently drifted shorter than what's really
+	// flying. Each subsequent replan then computed its time budget (and the
+	// `segmentTimes[curr_v] -= t_elap` bookkeeping) from a too-short number,
+	// which can force another retry -- and occasionally the resulting polynomial
+	// has to swing hard to fit the (wrongly) tight window, i.e. an intermittent
+	// "collapse" a cycle or more after any retry happened. Map the committed
+	// slice back onto the same absolute positions.
+	if(count > 0){
+		std::cout << "[replan] retries=" << count
+		          << " -- syncing segmentTimes to the committed (grown) times"
+		          << std::endl;
+	}
+	for(size_t i = 0; i < trajectory->segmentTimes.size(); i++){
+		segmentTimes[curr_v + i] = trajectory->segmentTimes[i];
 	}
 	//std::cout << "successful replanning" <<std::endl;
 	return true;
