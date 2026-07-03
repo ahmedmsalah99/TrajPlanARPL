@@ -341,11 +341,11 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	// rotation. e3 is world-up; in NED (z-down) that is (0,0,-1).
 	Eigen::Vector3d s3(H(0,2), H(1,2), H(2,2));
 	std::cout << "[DIAG] calcPerchCond s3 (goal normal used) = "
-            << s3.transpose() << std::endl;
+            << s3 << std::endl;
 	Eigen::Vector3d e3(0.0, 0.0, -1.0);
 	double cos_incl = s3.dot(e3);                       // = cos(inclination)
 	double sin_incl = sqrt(s3(0)*s3(0) + s3(1)*s3(1));  // horizontal length of s3 = sin(inclination)
-
+	std::cout << "sin_incl " << sin_incl <<std::endl;
 	// Guard: an upside-down / overhanging pad (normal points below horizontal)
 	// would require thrusting downward, which a quadrotor cannot do. Warn and
 	// clamp to a vertical surface rather than emit an infeasible target.
@@ -361,8 +361,8 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 
 	// Terminal specific-thrust magnitude (eq. 12): scaled from 0 (flat) up to
 	// maxInclinationAccel (vertical) by the inclination factor sin(inclination).
-	double force = maxInclinationAccel * sin_incl;
-
+	double force = 9.81 + maxInclinationAccel * sin_incl;
+	std::cout << "force is " << force << " sin_incl "<< sin_incl << std::endl;
 	// Impact velocity built in the surface frame so it generalizes to any
 	// orientation: a component INTO the surface (-s3, magnitude impactNormalVel = vS1)
 	// plus a component ALONG the surface, down-slope (t_up, magnitude impactSlideVel = vS3).
@@ -387,6 +387,10 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	finalAccel[0] = s3(0) * force - 9.81 * e3(0);
 	finalAccel[1] = s3(1) * force - 9.81 * e3(1);
 	finalAccel[2] = s3(2) * force - 9.81 * e3(2);
+	std::cout << "final acceleration " << finalAccel[0] << std::endl;
+	std::cout << "final acceleration " << finalAccel[1] << std::endl;
+	std::cout << "final acceleration " << finalAccel[2] << std::endl;
+	std::cout << "final acceleration " << finalAccel << std::endl;
 	vertices[numPoint-1].setAccel(finalAccel);
 	//vertices[numPoint-1].setJerk(Eigen::VectorXd::Zero(4));
 	//vertices[numPoint-1].setSnap(Eigen::VectorXd::Zero(4));
@@ -491,16 +495,23 @@ void TrajBase::applyMinAltitude(){
 	// segment length. Call this after autogenTimeSegment()/segmentTimes is set
 	// for this plan.
 	if(segmentTimes.size() != vertices.size() - 1){
-		std::cout << "[applyMinAltitude] segmentTimes not sized to vertices yet"
-		          << " (call after segment times are set for this plan) -- skipping"
+		std::cout << "[MIN_ALTITUDE] SKIPPED: segmentTimes not sized to vertices yet"
+		          << " (segmentTimes=" << segmentTimes.size()
+		          << " vertices=" << vertices.size()
+		          << ") -- call after segment times are set for this plan"
 		          << std::endl;
 		return;
 	}
 
 	// Effectively unbounded on the unconstrained dimensions/direction; the QP
 	// needs a finite box (d <= Cx <= f), so use a bound far outside any
-	// physically reachable position instead of true infinity.
-	const double kUnbounded = 1e6;
+	// physically reachable position instead of true infinity. Keep this modest
+	// (not e.g. 1e6): positions here are O(1-10) m, and mixing a wildly
+	// different scale into the same QP as the real O(1-10) constraints
+	// ill-conditions the interior-point solver, which can fail to converge
+	// even when the true feasible region is fine (matches
+	// kEmptyIneqBound=0.1's small-and-scaled convention elsewhere).
+	const double kUnbounded = 100.0;
 
 	// NED: altitude above the world origin = -z, so a minimum altitude is an
 	// UPPER bound on z (z <= -minAltitude). Only z (index 2) is constrained;
@@ -530,6 +541,9 @@ void TrajBase::applyMinAltitude(){
 		c.InEqDim(2) = 1;
 		vertices[i].addInEqualityConstraint(c);
 	}
+	std::cout << "[MIN_ALTITUDE] applied: minAlt=" << minAltitude
+	          << " (z <= " << -minAltitude << ") across "
+	          << (vertices.size() - 1) << " segment(s)" << std::endl;
 }
 
 /*Virtual Stubs*/
