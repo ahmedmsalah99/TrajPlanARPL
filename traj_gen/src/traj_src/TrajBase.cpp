@@ -361,7 +361,7 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 
 	// Terminal specific-thrust magnitude (eq. 12): scaled from 0 (flat) up to
 	// maxInclinationAccel (vertical) by the inclination factor sin(inclination).
-	double force = maxInclinationAccel * sin_incl;
+	double force = 9.81 + maxInclinationAccel * sin_incl;
 	std::cout << "force is " << force << " sin_incl "<< sin_incl << std::endl;
 	// Impact velocity built in the surface frame so it generalizes to any
 	// orientation: a component INTO the surface (-s3, magnitude impactNormalVel = vS1)
