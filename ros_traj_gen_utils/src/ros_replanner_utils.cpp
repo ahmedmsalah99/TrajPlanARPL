@@ -289,8 +289,13 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
         QP_ineq_const full_ineq_constr;
 	    int coeffNum = trajectory->getPolyOrder()*(trajectory->numWaypoints() - 1)*trajectory->getDim() ;
 		full_ineq_constr.C =Eigen::MatrixXd::Zero(rows,coeffNum);
-		full_ineq_constr.f = Eigen::VectorXd::Constant(rows,-1);
-		full_ineq_constr.d = Eigen::VectorXd::Constant(rows,1);
+		// Sane, non-contradictory default (d <= f) so any row genInEqFOV doesn't
+		// populate (it currently always returns true, but just in case) stays a
+		// trivially-satisfied placeholder instead of an unconditionally
+		// infeasible one. The previous default (f=-1, d=1, i.e. d > f) made
+		// every row this loop failed to overwrite unsatisfiable by construction.
+		full_ineq_constr.f = Eigen::VectorXd::Constant(rows,50000);
+		full_ineq_constr.d = Eigen::VectorXd::Constant(rows,-50000);
 		float t_now = t_elap;
 		//std::cout << " rows" << rows << std::endl;
 		float fullTime = 0.0;
@@ -315,13 +320,20 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 			future_v[future_v.size()-1].getPos(&pose_last);
 			Eigen::Vector3d end_point= pose_last.block<3,1>(0,0);	
 			//std::cout << " Insert number  " << t_now <<std::endl;
-			if (trajectory->genInEqFOV(t_elap,end_point, pose_fov, accelfov, &temp_ineq_constr)){
+			// t_now (not t_elap) is the actual time pose_fov/accelfov were sampled
+			// at above -- genInEqFOV needs it to place the constraint's basis rows
+			// at the matching segment/local-time instead of always segment 0.
+			if (trajectory->genInEqFOV(t_now,end_point, pose_fov, accelfov, &temp_ineq_constr)){
 				//std::cout << "generate FoV"<< std::endl;
 				full_ineq_constr.C.block(k, 0,1, coeffNum) = temp_ineq_constr.C.block(0, 0,1, coeffNum);
 				///std::cout << "insert C" <<std::endl;
-				full_ineq_constr.d(0)= temp_ineq_constr.d(0);
+				// Was hardcoded to index 0 regardless of k: rows 1..rows-1 of d/f
+				// kept their default-constructed (d > f, unconditionally
+				// infeasible) values, making the whole joint QP infeasible
+				// whenever FOV was enabled with more than one sample row.
+				full_ineq_constr.d(k) = temp_ineq_constr.d(0);
 				//std::cout << "insert d" <<std::endl;
-				full_ineq_constr.f(0) = temp_ineq_constr.f(0);
+				full_ineq_constr.f(k) = temp_ineq_constr.f(0);
 				//std::cout << "insert f" <<std::endl;
 
 				//std::cout << " count" << count << std::endl;

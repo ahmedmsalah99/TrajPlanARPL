@@ -550,7 +550,7 @@ void TrajBase::applyMinAltitude(){
 
 
 
-bool TrajBase::genInEqFOV(double replan_time, Eigen::Vector3d target, 	Eigen::Vector4d pose,	Eigen::Vector3d accel , QP_ineq_const * constraint)
+bool TrajBase::genInEqFOV(double t_now, Eigen::Vector3d target, 	Eigen::Vector4d pose,	Eigen::Vector3d accel , QP_ineq_const * constraint)
 {
         //std::cout << " strat ineq Fov" <<std::endl;
         int coeffNum = (vertices.size() - 1) *  polyOrder;
@@ -586,17 +586,41 @@ bool TrajBase::genInEqFOV(double replan_time, Eigen::Vector3d target, 	Eigen::Ve
 	double g_x0 = constr.diff - grad_dot_x0;            // = diff(x0), the current margin
 	ineq_const.d(0) = grad_dot_x0 - g_x0 + fovMargin;   // lower bound
 	ineq_const.f(0) = 50000;                            // ~ +inf
-	Eigen::MatrixXd row_pos = basis(replan_time, 0).transpose();
-	Eigen::MatrixXd row_acc = basis(replan_time, 2).transpose();
-	Eigen::MatrixXd row_jerk = basis(replan_time, 3).transpose();
+
+	// Locate which segment t_now falls in and the LOCAL time within that
+	// segment (same walk evalTraj uses), so the basis rows below are
+	// expressed at the same point (pose, accel) was sampled at/linearized
+	// around -- instead of always being pinned to segment 0 at whatever raw
+	// time was passed in.
+	int numSeg = segmentTimes.size();
+	int segIdx = 0;
+	double localTime = 0.0;
+	if(numSeg > 0){
+		localTime = std::max(0.0, t_now);
+		while(segIdx < numSeg-1 && segmentTimes[segIdx] < localTime){
+			localTime -= segmentTimes[segIdx];
+			segIdx += 1;
+		}
+		if(localTime > segmentTimes[segIdx]){
+			localTime = segmentTimes[segIdx];
+		}
+	}
+
+	Eigen::MatrixXd row_pos = basis(localTime, 0).transpose();
+	Eigen::MatrixXd row_acc = basis(localTime, 2).transpose();
+	Eigen::MatrixXd row_jerk = basis(localTime, 3).transpose();
 	for(int i = 0; i < 3; i++){
+		// coeffNum*i selects dimension i's block; polyOrder*segIdx then
+		// selects the correct SEGMENT within that dimension's block (segment
+		// 0 is only correct when t_now happens to land in the first segment).
+		int colOff = coeffNum*i + polyOrder*segIdx;
 		ineq_const.f(i+1) = 15;//*sum_jacob_frac/sum_jacobian;
 		ineq_const.d(i+1) = -15;
-		ineq_const.C.block(i+1, coeffNum*i,1, polyOrder) = row_jerk;
+		ineq_const.C.block(i+1, colOff,1, polyOrder) = row_jerk;
 		//std::cout << "loop: " << i << std::endl;
 		//std::cout << ineq_const.C <<std::endl;
-		const_conv.block(i, coeffNum*i,1, polyOrder) = row_pos; 
-		const_conv.block(i+3, coeffNum*i,1, polyOrder) = row_acc; 
+		const_conv.block(i, colOff,1, polyOrder) = row_pos;
+		const_conv.block(i+3, colOff,1, polyOrder) = row_acc;
 		//Goal [posx ; posy; posz ; accx; accy; accz]
 	}
 	
