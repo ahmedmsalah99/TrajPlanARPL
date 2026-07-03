@@ -10,9 +10,9 @@ traj_exe:
     v_max: 10.0               # max velocity (m/s)
     a_max: 20.0              # max acceleration (m/s^2)
     # Perching parameters
-    max_inclination_accel: 1.5  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
+    max_inclination_accel: 9.8  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
     impact_normal_vel: 0.0      # vS1: impact speed INTO the surface (m/s)
-    impact_slide_vel: -0.5      # vS3: impact speed ALONG the surface, down-slope (m/s)
+    impact_slide_vel: 0.0      # vS3: impact speed ALONG the surface, down-slope (m/s)
     min_pitch: 0.5              # inclination below this (rad) -> soft landing
     # eq.(14) approach band (acceleration kept near the target before impact)
     perch_band_q: 0.5           # (1+q) magnitude tolerance of the band
@@ -29,7 +29,7 @@ traj_exe:
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
     # Minimum altitude enforced across the whole trajectory (NED: upper bound on z)
     min_altitude_enable: false  # add the min-altitude inequality to every segment
-    min_altitude: 0.3           # metres above the world origin
+    min_altitude: 0.0           # metres above the world origin
     # Camera / tag extrinsics (used in visual perching)
     cam_translation: [0.0, 0.0, 0.0]   # camera position offset in the body frame (m)
     cam_tilt: 0.0                    # camera mount tilt (rad); shared by the FOV optical axis and the apriltag extrinsic

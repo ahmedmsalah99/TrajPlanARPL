@@ -341,11 +341,11 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	// rotation. e3 is world-up; in NED (z-down) that is (0,0,-1).
 	Eigen::Vector3d s3(H(0,2), H(1,2), H(2,2));
 	std::cout << "[DIAG] calcPerchCond s3 (goal normal used) = "
-            << s3.transpose() << std::endl;
+            << s3 << std::endl;
 	Eigen::Vector3d e3(0.0, 0.0, -1.0);
 	double cos_incl = s3.dot(e3);                       // = cos(inclination)
 	double sin_incl = sqrt(s3(0)*s3(0) + s3(1)*s3(1));  // horizontal length of s3 = sin(inclination)
-
+	std::cout << "sin_incl " << sin_incl <<std::endl;
 	// Guard: an upside-down / overhanging pad (normal points below horizontal)
 	// would require thrusting downward, which a quadrotor cannot do. Warn and
 	// clamp to a vertical surface rather than emit an infeasible target.
@@ -362,7 +362,7 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	// Terminal specific-thrust magnitude (eq. 12): scaled from 0 (flat) up to
 	// maxInclinationAccel (vertical) by the inclination factor sin(inclination).
 	double force = maxInclinationAccel * sin_incl;
-
+	std::cout << "force is " << force << " sin_incl "<< sin_incl << std::endl;
 	// Impact velocity built in the surface frame so it generalizes to any
 	// orientation: a component INTO the surface (-s3, magnitude impactNormalVel = vS1)
 	// plus a component ALONG the surface, down-slope (t_up, magnitude impactSlideVel = vS3).
@@ -387,6 +387,10 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	finalAccel[0] = s3(0) * force - 9.81 * e3(0);
 	finalAccel[1] = s3(1) * force - 9.81 * e3(1);
 	finalAccel[2] = s3(2) * force - 9.81 * e3(2);
+	std::cout << "final acceleration " << finalAccel[0] << std::endl;
+	std::cout << "final acceleration " << finalAccel[1] << std::endl;
+	std::cout << "final acceleration " << finalAccel[2] << std::endl;
+	std::cout << "final acceleration " << finalAccel << std::endl;
 	vertices[numPoint-1].setAccel(finalAccel);
 	//vertices[numPoint-1].setJerk(Eigen::VectorXd::Zero(4));
 	//vertices[numPoint-1].setSnap(Eigen::VectorXd::Zero(4));
