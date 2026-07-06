@@ -627,6 +627,19 @@ bool TrajBase::genInEqFOV(double t_now, Eigen::Vector3d target, 	Eigen::Vector4d
 	//std::cout <<"constraint Jacobian " << constr.Jacobian.rows() <<std::endl;
 	ineq_const.C.block(0, 0,1, coeffNum*dim) = constr.Jacobian *const_conv;
 	*constraint = ineq_const ;
+	std::cout << "[FOVDIAG] t_now=" << t_now << " segIdx=" << segIdx
+	          << " localTime=" << localTime
+	          << " pose=[" << pose[0] << "," << pose[1] << "," << pose[2] << "]"
+	          << " accel=[" << accel[0] << "," << accel[1] << "," << accel[2] << "]"
+	          << " target=[" << target[0] << "," << target[1] << "," << target[2] << "]"
+	          << std::endl;
+	std::cout << "[FOVDIAG] constr.diff=" << constr.diff
+	          << " grad_dot_x0=" << grad_dot_x0 << " g_x0(margin)=" << g_x0
+	          << " fovMargin=" << fovMargin
+	          << " d(0)=" << ineq_const.d(0) << " f(0)=" << ineq_const.f(0)
+	          << " Jacobian=" << constr.Jacobian << std::endl;
+	std::cout << "[FOVDIAG] row0 C norm=" << ineq_const.C.row(0).norm()
+	          << " row0 C nonzero-range cols=[0," << coeffNum*3 << ")" << std::endl;
 	return true;
 }
 
