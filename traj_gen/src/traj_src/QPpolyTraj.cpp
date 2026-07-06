@@ -150,7 +150,39 @@ Eigen::MatrixXd QPpolyTraj::SMsolve(int minDeriv)
 	std::cout << "d: "<<qp_ineq_constr.d <<std::endl;
 	std::cout << "f: "<<qp_ineq_constr.f <<std::endl;*/
 	//There is definitely a problem here Trajectory generation fails a second time for some reason....
-	Eigen::SparseMatrix<double, Eigen::RowMajor> Obj = comp.sparseView(); 
+	// [SMDIAG] Sanity-check the assembled joint problem before handing it to OOQP,
+	// so a failure can be attributed to a specific piece instead of guessing:
+	// (1) any d>f box-constraint row (unconditionally infeasible, the same class
+	//     of bug as the earlier FOV index bug), (2) whether Ax=b is even
+	// consistent on its own (equality system rank vs augmented [A|b] rank --
+	// if they differ, no x satisfies Ax=b, independent of any inequality).
+	{
+		int nBad = 0;
+		for(int r = 0; r < qp_ineq_constr.d.rows(); r++){
+			if(qp_ineq_constr.d(r) > qp_ineq_constr.f(r)){
+				nBad++;
+				if(nBad <= 5){
+					std::cout << "[SMDIAG] row " << r << " has d(" << qp_ineq_constr.d(r)
+					          << ") > f(" << qp_ineq_constr.f(r) << ") -- unconditionally infeasible"
+					          << std::endl;
+				}
+			}
+		}
+		std::cout << "[SMDIAG] A=" << qp_constr.a.rows() << "x" << qp_constr.a.cols()
+		          << " C=" << qp_ineq_constr.C.rows() << "x" << qp_ineq_constr.C.cols()
+		          << " badBoxRows=" << nBad << std::endl;
+		Eigen::FullPivLU<Eigen::MatrixXd> luA(qp_constr.a);
+		int rankA = luA.rank();
+		Eigen::MatrixXd Aug(qp_constr.a.rows(), qp_constr.a.cols() + 1);
+		Aug.leftCols(qp_constr.a.cols()) = qp_constr.a;
+		Aug.rightCols(1) = qp_constr.b;
+		int rankAug = Eigen::FullPivLU<Eigen::MatrixXd>(Aug).rank();
+		std::cout << "[SMDIAG] rank(A)=" << rankA << " rank([A|b])=" << rankAug
+		          << " rows(A)=" << qp_constr.a.rows()
+		          << (rankA != rankAug ? "  <-- Ax=b INCONSISTENT (no x satisfies it)" : "")
+		          << std::endl;
+	}
+	Eigen::SparseMatrix<double, Eigen::RowMajor> Obj = comp.sparseView();
 	Eigen::SparseMatrix<double, Eigen::RowMajor> AooQP = qp_constr.a.sparseView();
 	Eigen::SparseMatrix<double, Eigen::RowMajor> C = qp_ineq_constr.C.sparseView();
     	Eigen::VectorXd sol = Eigen::VectorXd::Zero(coeffNum*dim);
