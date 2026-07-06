@@ -322,10 +322,57 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		trajectory->calcPerchCond(Target);
 	}
 
+	//SOLVE THE BASE PROBLEM FIRST -- NO JOINT CONSTRAINTS (FOV etc.) YET.
+	// Time-allocation infeasibility (the perch band, eq.14, needing more slack
+	// than the current segment time gives it) is the dominant failure mode and
+	// has nothing to do with FOV. Solving/retrying the base problem first
+	// guarantees a time budget that's actually enough for the perch/boundary
+	// dynamics BEFORE FOV is layered on, instead of testing FOV at the
+	// tightest (least likely to succeed) time allocation and then abandoning
+	// it for the rest of the cycle the moment that first attempt fails for an
+	// unrelated reason. add_joint_ineq_constr/add_joint_eq_constr are already
+	// empty here (clearAll() -> clear_ineq() reset them above), so this
+	// dispatches to the fast per-axis MTsolve, not SMsolve.
+	int count = 0;
+	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
+	while (!trajectory->checkSolved()){
+		//std::cout << "REPLAN NEED MORE TIME" <<std::endl;
+		// trajectory->segmentTimes here is rebuilt to start at index 0 (segments
+		// curr_v..end), so indexing [curr_v] walked out of bounds as curr_v grew
+		// -- a heap write past the vector end that intermittently corrupted the
+		// trajectory and made it collapse. Add to every remaining segment (0-based).
+		for(int i = 0; i < trajectory->segmentTimes.size(); i++){
+			trajectory->segmentTimes[i] += retryStep;
+		}
+		coeffQP =  trajectory->solve(degreeOpt);
+		count+=1;
+		if(count == retryMax){
+			//revert to previous trajectory
+			trajectory->overideSolve();
+			trajectory->vertices = vertices_prev;
+			trajectory->coeffSolved = coeffSolved_prev;
+			trajectory->segmentTimes =  segmentTimes_prev;
+			std::cout << " could not plan flight" << std::endl;
+			return false;
+		}
+	}
+	if(count > 0){
+		std::cout << "[replan] retries=" << count
+		          << " -- base solve (no joint constraints) needed more time"
+		          << std::endl;
+	}
+	// Base problem is solved and time-feasible. Keep it as the fallback in
+	// case FOV (below) can't be satisfied at this same time allocation.
+	Eigen::MatrixXd coeffSolved_base = trajectory->coeffSolved;
+	std::vector<double> segmentTimes_base = trajectory->segmentTimes;
+
 	//GENERATE FOV CONDITION -- pose/accel samples (fov_pose/fov_accel/fov_t_now)
 	//were captured further up, BEFORE clearAll(), from the still-valid previous
 	//trajectory. Build the actual constraint rows here, now that vertices/
-	//segmentTimes reflect the NEW structure genInEqFOV needs for column placement.
+	//segmentTimes reflect the NEW structure genInEqFOV needs for column placement
+	//(and now that segmentTimes reflects the time growth from the base solve
+	//above, so the segment/local-time lookup inside genInEqFOV lines up with
+	//the time allocation FOV is actually about to be solved against).
 	if(fovEnable){
 		int rows = fov_t_now.size();
 	    QP_ineq_const full_ineq_constr;
@@ -360,55 +407,40 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 			}
 		}
 		trajectory->push_joint_ineq_constr(full_ineq_constr);
-	}
-	//SOLVE THE MATRIX REVERT IF  NOT SOLVABLE
-	int count = 0;
-	// trajectory->setFullStop();
-	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
-	if(!(trajectory->checkSolved())){
-		trajectory->clear_ineq();
-		trajectory->clearCostVector();
-		coeffQP =  trajectory->solve(degreeOpt);
-	}
-	//std::cout << "End SM Solve" <<std::endl;
-	while (!trajectory->checkSolved()){
-		//std::cout << "REPLAN NEED MORE TIME" <<std::endl;
-		// trajectory->segmentTimes here is rebuilt to start at index 0 (segments
-		// curr_v..end), so indexing [curr_v] walked out of bounds as curr_v grew
-		// -- a heap write past the vector end that intermittently corrupted the
-		// trajectory and made it collapse. Add to every remaining segment (0-based).
-		for(int i = 0; i < trajectory->segmentTimes.size(); i++){
-			trajectory->segmentTimes[i] += retryStep;
-		}
-		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
-		count+=1;
-		if(count == retryMax){
-			//revert to previous trajectory
+
+		// One shot: try FOV layered on top of the already time-feasible base
+		// solve (dispatches to SMsolve since add_joint_ineq_constr is now
+		// non-empty). If it doesn't succeed at this segment time, fall back to
+		// the base (no-FOV) solution instead of growing time further or
+		// silently keeping FOV dropped for the rest of the cycle -- the old
+		// behavior, which abandoned FOV the moment the very first (often
+		// tightest-time) attempt failed, regardless of whether FOV itself was
+		// even the cause.
+		Eigen::MatrixXd coeffQP_fov = trajectory->solve(degreeOpt);
+		if(!trajectory->checkSolved()){
+			std::cout << "[replan] FOV solve failed at base-feasible time -- "
+			          << "falling back to the no-FOV solution" << std::endl;
+			trajectory->clear_ineq();
+			trajectory->clearCostVector();
 			trajectory->overideSolve();
-			trajectory->vertices = vertices_prev;
-			trajectory->coeffSolved = coeffSolved_prev;
-			trajectory->segmentTimes =  segmentTimes_prev;
-			std::cout << " could not plan flight" << std::endl;
-			return false;
+			trajectory->coeffSolved = coeffSolved_base;
+			trajectory->segmentTimes = segmentTimes_base;
 		}
 	}
-	// Sync back any time growth from the retry loop. `segmentTimes` (this class's
-	// member) is a persistent, ABSOLUTE-indexed array across the whole waypoint
-	// list -- curr_v indexes into it every call, and trajectory->segmentTimes is
-	// only ever a transient 0-based slice [curr_v..end] of it, rebuilt each call.
-	// The retry loop above grows trajectory->segmentTimes but never writes that
-	// growth back, so `segmentTimes` silently drifted shorter than what's really
-	// flying. Each subsequent replan then computed its time budget (and the
+
+	// Sync back any time growth from the base retry loop. `segmentTimes` (this
+	// class's member) is a persistent, ABSOLUTE-indexed array across the whole
+	// waypoint list -- curr_v indexes into it every call, and
+	// trajectory->segmentTimes is only ever a transient 0-based slice
+	// [curr_v..end] of it, rebuilt each call. The retry loop above grows
+	// trajectory->segmentTimes but never writes that growth back, so
+	// `segmentTimes` silently drifted shorter than what's really flying. Each
+	// subsequent replan then computed its time budget (and the
 	// `segmentTimes[curr_v] -= t_elap` bookkeeping) from a too-short number,
-	// which can force another retry -- and occasionally the resulting polynomial
-	// has to swing hard to fit the (wrongly) tight window, i.e. an intermittent
-	// "collapse" a cycle or more after any retry happened. Map the committed
-	// slice back onto the same absolute positions.
-	if(count > 0){
-		std::cout << "[replan] retries=" << count
-		          << " -- syncing segmentTimes to the committed (grown) times"
-		          << std::endl;
-	}
+	// which can force another retry -- and occasionally the resulting
+	// polynomial has to swing hard to fit the (wrongly) tight window, i.e. an
+	// intermittent "collapse" a cycle or more after any retry happened. Map
+	// the committed slice back onto the same absolute positions.
 	for(size_t i = 0; i < trajectory->segmentTimes.size(); i++){
 		segmentTimes[curr_v + i] = trajectory->segmentTimes[i];
 	}
