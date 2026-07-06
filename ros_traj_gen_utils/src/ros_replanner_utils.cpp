@@ -250,6 +250,45 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		//consume  the previous segments time if it is less than the minimum segment time
 		segmentTimes[curr_v]+=(segmentTimes[curr_v-1])+kSegMergeEps;
 	}
+
+	// FOV sampling must read the trajectory BEFORE trajectory->clearAll() below.
+	// clearAll() -> clear_vertices() resets traj_valid to false, and evalTraj()
+	// on a not-yet-solved trajectory hits its failure path, returning the
+	// constant -1e10 for every field. The FOV block used to call evalTraj()
+	// AFTER clearAll() (and before this cycle's own solve()), so pose_fov/
+	// accelfov were ALWAYS -1e10 -- every replan, unconditionally -- feeding
+	// garbage into genInEqFOV and producing an astronomically-scaled,
+	// unsatisfiable bound. That's the actual reason the FOV joint solve always
+	// failed, independent of coverage fraction, row count, or rank. Sample the
+	// still-valid (previously-solved) trajectory here instead; the constraint
+	// rows themselves are built further down, after the rebuild, since they
+	// need the NEW segment structure for correct column placement.
+	std::vector<double> fov_t_now;
+	std::vector<Eigen::Vector4d> fov_pose;
+	std::vector<Eigen::Vector3d> fov_accel;
+	if(fovEnable){
+		int rows = 8;
+		float t_now_s = t_elap;
+		float fullTime_s = 0.0;
+		for(int i=0;i<segmentTimes.size();i++){ fullTime_s += segmentTimes[i]; }
+		double coveredTime_s = std::min(fovCoverageFraction * fullTime_s, fullTime_s - 0.05);
+		if(coveredTime_s < 0.0){ coveredTime_s = 0.0; }
+		for(int k=0;k<rows;k++){
+			double incr_time = coveredTime_s/rows;
+			t_now_s += incr_time;
+			Eigen::MatrixXd replan_pose = trajectory->evalTraj(t_now_s);
+			Eigen::Vector4d pose_fov;
+			Eigen::Vector3d accelfov;
+			for(int i=0;i<4;i++){
+				pose_fov[i] = replan_pose(0,i);
+				if(i!=3){ accelfov[i] = replan_pose(2,i); }
+			}
+			fov_t_now.push_back(t_now_s);
+			fov_pose.push_back(pose_fov);
+			fov_accel.push_back(accelfov);
+		}
+	}
+
 	//Clear the last trajectories
 	trajectory->clearAll();
 	trajectory->push_back(start);
@@ -283,11 +322,13 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		trajectory->calcPerchCond(Target);
 	}
 
-	//GENERATE FOV CONDITION
+	//GENERATE FOV CONDITION -- pose/accel samples (fov_pose/fov_accel/fov_t_now)
+	//were captured further up, BEFORE clearAll(), from the still-valid previous
+	//trajectory. Build the actual constraint rows here, now that vertices/
+	//segmentTimes reflect the NEW structure genInEqFOV needs for column placement.
 	if(fovEnable){
-		int rows = 1;//ceil(((segmentTimes[segmentTimes.size()-1]-0.4)/0.033));
-	    //std::cout << " fov start"<<std::endl;
-        QP_ineq_const full_ineq_constr;
+		int rows = fov_t_now.size();
+	    QP_ineq_const full_ineq_constr;
 	    int coeffNum = trajectory->getPolyOrder()*(trajectory->numWaypoints() - 1)*trajectory->getDim() ;
 		full_ineq_constr.C =Eigen::MatrixXd::Zero(rows,coeffNum);
 		// Sane, non-contradictory default (d <= f) so any row genInEqFOV doesn't
@@ -297,63 +338,27 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		// every row this loop failed to overwrite unsatisfiable by construction.
 		full_ineq_constr.f = Eigen::VectorXd::Constant(rows,50000);
 		full_ineq_constr.d = Eigen::VectorXd::Constant(rows,-50000);
-		float t_now = t_elap;
-		//std::cout << " rows" << rows << std::endl;
-		float fullTime = 0.0;
-		for(int i =0;i<segmentTimes.size();i++){
-			fullTime+=segmentTimes[i];
-		}
-		// Only enforce FOV over the first fovCoverageFraction of the remaining
-		// segment (default 0.5 = the first half), starting from the current
-		// replan point. The rest (the final approach into the perch) is left
-		// unconstrained: requiring the target to stay in view all the way to
-		// the terminal maneuver made the joint (FOV+perch) solve infeasible on
-		// every replan, since the perch terminal dynamics dominate near the end
-		// and the whole solve fails if even one of the 8 sample points can't
-		// satisfy FOV. A small margin keeps the last sample off the terminal
-		// vertex itself even if fovCoverageFraction is set close to 1.
-		double coveredTime = std::min(fovCoverageFraction * fullTime, fullTime - 0.05);
-		if(coveredTime < 0.0){ coveredTime = 0.0; }
+
+		Eigen::VectorXd pose_last;
+		future_v[future_v.size()-1].getPos(&pose_last);
+		Eigen::Vector3d end_point= pose_last.block<3,1>(0,0);
+
 		for(int k=0;k<rows;k++){
 			QP_ineq_const temp_ineq_constr;
-			double incr_time = coveredTime/rows;
-			t_now +=incr_time;//
-			Eigen::MatrixXd replan_pose = trajectory->evalTraj(t_now);
-        		Eigen::Vector4d pose_fov;
-		        Eigen::Vector3d accelfov;
-			for(int i =0; i<4;i++){
-				pose_fov[i] = replan_pose(0,i);
-				if(i!=3){
-					accelfov[i] = replan_pose(2,i);
-				}
-			}
-
-			Eigen::VectorXd pose_last;
-			future_v[future_v.size()-1].getPos(&pose_last);
-			Eigen::Vector3d end_point= pose_last.block<3,1>(0,0);	
-			//std::cout << " Insert number  " << t_now <<std::endl;
-			// t_now (not t_elap) is the actual time pose_fov/accelfov were sampled
-			// at above -- genInEqFOV needs it to place the constraint's basis rows
-			// at the matching segment/local-time instead of always segment 0.
-			if (trajectory->genInEqFOV(t_now,end_point, pose_fov, accelfov, &temp_ineq_constr)){
-				//std::cout << "generate FoV"<< std::endl;
+			// fov_t_now[k] (not t_elap) is the actual time fov_pose[k]/fov_accel[k]
+			// were sampled at -- genInEqFOV needs it to place the constraint's
+			// basis rows at the matching segment/local-time instead of always
+			// segment 0.
+			if (trajectory->genInEqFOV(fov_t_now[k],end_point, fov_pose[k], fov_accel[k], &temp_ineq_constr)){
 				full_ineq_constr.C.block(k, 0,1, coeffNum) = temp_ineq_constr.C.block(0, 0,1, coeffNum);
-				///std::cout << "insert C" <<std::endl;
 				// Was hardcoded to index 0 regardless of k: rows 1..rows-1 of d/f
 				// kept their default-constructed (d > f, unconditionally
 				// infeasible) values, making the whole joint QP infeasible
 				// whenever FOV was enabled with more than one sample row.
 				full_ineq_constr.d(k) = temp_ineq_constr.d(0);
-				//std::cout << "insert d" <<std::endl;
 				full_ineq_constr.f(k) = temp_ineq_constr.f(0);
-				//std::cout << "insert f" <<std::endl;
-
-				//std::cout << " count" << count << std::endl;
-				//std::cout << "evaluation: "<<temp_ineq_constr.f(0) <<std::endl;
-				//trajectory.setCostVector(temp_ineq_constr.C.block(0, 0,1, coeff).transpose());
 			}
 		}
-		//std::cout << " all values input " <<std::endl;
 		trajectory->push_joint_ineq_constr(full_ineq_constr);
 	}
 	//SOLVE THE MATRIX REVERT IF  NOT SOLVABLE
