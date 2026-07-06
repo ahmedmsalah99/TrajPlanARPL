@@ -19,6 +19,19 @@ protected:
 	 QP_ineq_const genInEqJointConstraint(); //generates inequalty constraints. 
 	 Eigen::MatrixXd generateJointObjFun(int minDeriv); // Helper function for the gerenate
 	 Eigen::MatrixXd generateQ(int minDeriv, double time); // Helper function for the gerenate ObjFunction
+	 // The EXACT number of equality rows genConstraint() will write for a single
+	 // dimension, given the current vertices: vertex 0 always contributes 5 rows
+	 // (pos + vel/accel/jerk/snap, unconditionally -- unset ones are forced to 0);
+	 // the last vertex contributes 1 (pos) + one row per SET higher derivative
+	 // (unset ones are correctly left out, i.e. free); interior vertices
+	 // contribute 2 (position continuity) + two rows per SET higher derivative.
+	 // Must be kept in exact sync with genConstraint()'s row-writing logic --
+	 // previously this was a fixed formula (6*vertices.size()-2 + ...) that
+	 // assumed every vertex sets all 4 higher derivatives, so a vertex that
+	 // deliberately leaves some free (e.g. a perch terminal's unset jerk/snap)
+	 // left the pre-allocated A/b rows for those derivatives never written --
+	 // trailing all-zero rows that rank-deficiency the assembled equality matrix.
+	 int countEqConstraintRows();
 
 public:
     bool fast = false; //Determines if we fast solve. Fast solve is faster
