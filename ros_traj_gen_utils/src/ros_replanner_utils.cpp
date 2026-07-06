@@ -1,6 +1,7 @@
 #include <ros_traj_gen_utils/ros_replanner_utils.h>
 #include <ros_traj_gen_utils/ros_traj_utils.h>
 #include <iostream>
+#include <algorithm>
 using namespace std;
 
 ros_replan_utils::ros_replan_utils(){
@@ -302,9 +303,20 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		for(int i =0;i<segmentTimes.size();i++){
 			fullTime+=segmentTimes[i];
 		}
+		// Only enforce FOV over the first fovCoverageFraction of the remaining
+		// segment (default 0.5 = the first half), starting from the current
+		// replan point. The rest (the final approach into the perch) is left
+		// unconstrained: requiring the target to stay in view all the way to
+		// the terminal maneuver made the joint (FOV+perch) solve infeasible on
+		// every replan, since the perch terminal dynamics dominate near the end
+		// and the whole solve fails if even one of the 8 sample points can't
+		// satisfy FOV. A small margin keeps the last sample off the terminal
+		// vertex itself even if fovCoverageFraction is set close to 1.
+		double coveredTime = std::min(fovCoverageFraction * fullTime, fullTime - 0.05);
+		if(coveredTime < 0.0){ coveredTime = 0.0; }
 		for(int k=0;k<rows;k++){
 			QP_ineq_const temp_ineq_constr;
-			double incr_time = (fullTime-0.5)/rows;
+			double incr_time = coveredTime/rows;
 			t_now +=incr_time;//
 			Eigen::MatrixXd replan_pose = trajectory->evalTraj(t_now);
         		Eigen::Vector4d pose_fov;
@@ -401,6 +413,10 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 
 void ros_replan_utils::setFOVEnable(bool in){
 	fovEnable = in;
+}
+
+void ros_replan_utils::setFOVCoverageFraction(double frac){
+	fovCoverageFraction = frac;
 }
 
 void ros_replan_utils::setReplanParams(double step, int maxRetries, double minSeg){

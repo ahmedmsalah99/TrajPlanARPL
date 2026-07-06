@@ -55,6 +55,7 @@ double g_replan_retry_step = 0.2;
 int g_replan_retry_max = 10;
 double g_replan_min_seg = 0.5;
 bool g_fov_enable = true;
+double g_fov_coverage_fraction = 0.5;
 
 // Helper to declare (once) and fetch a parameter with a default.
 template <typename T>
@@ -166,6 +167,7 @@ void init_params(){
 	g_replan_retry_max = getParamOr<int>("replan_retry_max", 10);
 	g_replan_min_seg = getParamOr<double>("replan_min_seg", 0.5);
 	g_fov_enable = getParamOr<bool>("fov_enable", true);
+	g_fov_coverage_fraction = getParamOr<double>("fov_coverage_fraction", 0.5);
 }
 
 
@@ -216,6 +218,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, useVisual);
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
 	replanner.setFOVEnable(g_fov_enable);
+	replanner.setFOVCoverageFraction(g_fov_coverage_fraction);
 	if(usePerch){
 		replanner.initialPlan(3, target);
 	}

@@ -26,6 +26,7 @@ traj_exe:
     # Field-of-view constraint (off until task 3)
     fov_enable: false
     fov_margin: 0.0
+    fov_coverage_fraction: 0.5  # enforce FOV over only the first this-fraction of the remaining segment
     # Minimum altitude enforced across the whole trajectory (NED: upper bound on z)
     min_altitude_enable: false
     min_altitude: 0.3
