@@ -640,6 +640,22 @@ bool TrajBase::genInEqFOV(double t_now, Eigen::Vector3d target, 	Eigen::Vector4d
 	          << " Jacobian=" << constr.Jacobian << std::endl;
 	std::cout << "[FOVDIAG] row0 C norm=" << ineq_const.C.row(0).norm()
 	          << " row0 C nonzero-range cols=[0," << coeffNum*3 << ")" << std::endl;
+
+	// Yaw diagnostic: derivative_FOV's Jacobian only covers [x,y,z,ax,ay,az] --
+	// yaw (pose[3]) is baked into FOV_constraint's B2/B3 axes but is never an
+	// optimizable variable in the linearization above. If the trajectory's
+	// actual yaw doesn't already point roughly at the target, the position/
+	// accel-only linear constraint has no lever to fix a wrong-heading camera.
+	// Print yaw vs. the horizontal bearing to the target so we can tell
+	// whether that's what's happening here.
+	double bearing_to_target = std::atan2(target[1] - pose[1], target[0] - pose[0]);
+	double yaw_err = bearing_to_target - pose[3];
+	while(yaw_err > M_PI){ yaw_err -= 2*M_PI; }
+	while(yaw_err < -M_PI){ yaw_err += 2*M_PI; }
+	std::cout << "[FOVDIAG][YAW] yaw=" << pose[3]
+	          << " bearing_to_target=" << bearing_to_target
+	          << " yaw_err=" << yaw_err
+	          << " (0=camera faces target, +-pi=camera faces away)" << std::endl;
 	return true;
 }
 
