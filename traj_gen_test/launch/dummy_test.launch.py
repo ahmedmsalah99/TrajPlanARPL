@@ -20,8 +20,8 @@ def generate_launch_description():
                 'waypoints': [
                     # 0.0, 0.0, 0.0, 0.0,
                             #   2.0, 0.0, -1.0, 0.0,
-                              3.0, 0.0, -1.0, 0.0],
-                'tag_pose' : [10, 0, 5.0, 3.54, 0.3, 0],
+                              3.0, 0.0, 0.0, 0.0],
+                'tag_pose' : [10.0, 0.0, 0.0, 3.54, 0.3, 0],
                 'odom_ned':[0.0, 0.0, -5,0],
                 'publish_tf': True,      # publish TF so RViz can resolve the frames
                 'fixed_frame': 'map',    # set RViz Fixed Frame to this

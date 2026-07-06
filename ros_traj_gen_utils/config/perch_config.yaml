@@ -25,9 +25,9 @@ traj_exe:
     replan_retry_max: 10        # max solve retries before giving up / reverting
     replan_min_seg: 1.0         # (has to be longer than perch_window) segments shorter than this (s) are merged/skipped
     # Field-of-view constraint
-    fov_enable: false            # add the FOV inequality (keep the target in view) during replanning
+    fov_enable: true            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
-    fov_coverage_fraction: 0.5  # enforce FOV over only the first this-fraction of the remaining segment (rest = final approach, left unconstrained)
+    fov_coverage_fraction: 0.1  # enforce FOV over only the first this-fraction of the remaining segment (rest = final approach, left unconstrained)
     # Minimum altitude enforced across the whole trajectory (NED: upper bound on z)
     min_altitude_enable: false  # add the min-altitude inequality to every segment
     min_altitude: 0.0           # metres above the world origin
