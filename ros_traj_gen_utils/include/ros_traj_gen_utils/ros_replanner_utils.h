@@ -28,6 +28,12 @@ int curr_v =0;
 //Target updates
 bool visualFeedback = false;
 bool fovEnable = false;
+// Fraction of the remaining segment's duration (measured from the current
+// replan point) over which the FOV constraint is enforced; the rest of the
+// segment (the final approach, where perch terminal dynamics dominate) is
+// left unconstrained so requiring FOV there can't make the whole solve
+// infeasible.
+double fovCoverageFraction = 0.5;
 //Replanner retry tuning (set from config; defaults preserve prior behavior)
 double retryStep = 0.2;   // seconds added to segment time(s) per failed solve
 int retryMax = 10;        // max solve retries before giving up / reverting
@@ -51,6 +57,9 @@ bool replan(int degreeOpt, double t_elap, double t_off);
 //This replanner uses a new final target acquisition 
 bool replan(int degreeOpt, double t_elap, double t_off, Eigen::Matrix4d Target);
 void setFOVEnable(bool in);
+//Configure what fraction (0-1] of the remaining segment's duration the FOV
+//constraint is enforced over, starting from the current replan point.
+void setFOVCoverageFraction(double frac);
 void setTime(std::vector<double> times_in);
 //Configure retry tuning (step seconds, max retries, min segment time)
 void setReplanParams(double step, int maxRetries, double minSeg);
