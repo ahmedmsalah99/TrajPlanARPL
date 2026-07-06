@@ -10,12 +10,12 @@ traj_exe:
     v_max: 10.0               # max velocity (m/s)
     a_max: 20.0              # max acceleration (m/s^2)
     # Perching parameters
-    max_inclination_accel: 4.0  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
+    max_inclination_accel: 1.5  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
     impact_normal_vel: 0.0      # vS1: impact speed INTO the surface (m/s)
     impact_slide_vel: 0.0      # vS3: impact speed ALONG the surface, down-slope (m/s)
     min_pitch: 0.5              # inclination below this (rad) -> soft landing
     # eq.(14) approach band (acceleration kept near the target before impact)
-    perch_band_q: 0.5           # (1+q) magnitude tolerance of the band
+    perch_band_q: 2.0           # (1+q) magnitude tolerance of the band
     perch_window: 0.5           # window before impact (s) over which the band is enforced
     perch_band_eps: 0.2         # additive slack so the band never collapses to a point
     # Replanner timing / retry

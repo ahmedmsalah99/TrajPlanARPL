@@ -285,7 +285,7 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 
 	//GENERATE FOV CONDITION
 	if(fovEnable){
-		int rows = 8;//ceil(((segmentTimes[segmentTimes.size()-1]-0.4)/0.033));
+		int rows = 1;//ceil(((segmentTimes[segmentTimes.size()-1]-0.4)/0.033));
 	    //std::cout << " fov start"<<std::endl;
         QP_ineq_const full_ineq_constr;
 	    int coeffNum = trajectory->getPolyOrder()*(trajectory->numWaypoints() - 1)*trajectory->getDim() ;
