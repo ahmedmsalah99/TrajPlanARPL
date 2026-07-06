@@ -94,11 +94,7 @@ Eigen::MatrixXd QPpolyTraj::fastMTSolve(int minDeriv)
     int numberSegments = segmentTimes.size();
 	// Declare variables and zero memories
 	//calculating the number of constraints
-	int numConstraint = 6 * vertices.size() - 2;
-	for (int i = 1; i <vertices.size()-1; i++){
-		int addConstraint = vertices[i].getStatus().sum() -1;
-		numConstraint +=addConstraint;
-	}		
+	int numConstraint = countEqConstraintRows();
 	Eigen::MatrixXd coeff = Eigen::MatrixXd::Zero(coeffNum, dim);
     Eigen::MatrixXd C = Eigen::MatrixXd::Zero((numConstraint), coeffNum);
     Eigen::VectorXd d = Eigen::VectorXd::Zero(numConstraint);
@@ -312,16 +308,12 @@ Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 	 }
 	 std::vector<boost::thread> threads;
 	// Declare variables and zero memories
-	int numConstraint = 6 * vertices.size() - 2;
-	for (int i = 1; i <vertices.size()-1; i++){
-		int addConstraint = vertices[i].getStatus().sum() -1;
-		numConstraint +=addConstraint;
-	}		
+	int numConstraint = countEqConstraintRows();
 	Eigen::MatrixXd coeff = Eigen::MatrixXd::Zero(coeffNum, dim);
    //generate object function
    	Eigen::MatrixXd D = generateObjFun(minDeriv);
 	for (int j = 0; j < dim; j++){
-		QP_constraint qp = genConstraint( j,numConstraint); //each dimension has its unique equality constraint 
+		QP_constraint qp = genConstraint( j,numConstraint); //each dimension has its unique equality constraint
 		QP_ineq_const ineq_qp = genInEqConstraint(j);
 		
 		threads.push_back(boost::thread(thread_QP, j,  D, coeffNum, qp,ineq_qp,&coeff,&traj_valid));
@@ -710,6 +702,33 @@ QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 }
 
 
+int QPpolyTraj::countEqConstraintRows(){
+	// Mirrors genConstraint()'s row-writing exactly (see the three branches
+	// there: i==0, i==last, interior) so the pre-allocated A/b size always
+	// matches what actually gets written -- no trailing all-zero rows.
+	int count = 0;
+	Eigen::VectorXd point;
+	int n = vertices.size();
+	for(int i = 0; i < n; i++){
+		if(i == 0){
+			count += 5; // pos + vel/accel/jerk/snap: always written (unset -> forced 0)
+		}
+		else if(i == n-1){
+			count += 1; // pos: always
+			for(int j = 1; j < 5; j++){
+				if(vertices[i].getConstraint(&point, j) == 1){ count += 1; }
+			}
+		}
+		else{
+			count += 2; // position continuity (prev-end + next-start): always
+			for(int j = 1; j < 5; j++){
+				if(vertices[i].getConstraint(&point, j) == 1){ count += 2; }
+			}
+		}
+	}
+	return count;
+}
+
 QP_constraint QPpolyTraj::genConstraint( int dimension, int numConstraint)
 {
     //do the fixed first
@@ -881,12 +900,7 @@ QP_constraint QPpolyTraj::genJointConstraint(){
     	int coeffNum = (vertices.size() - 1) *  polyOrder;
 	int sumConstraint = 0;
 	 //Don't have pure 0's on the derivative of the last object
-	int numConstraint = 6 * vertices.size() - 2;
-	//calculate the number of vertice constraint
-	for (int i = 1; i <vertices.size()-1; i++){
-		int addConstraint = vertices[i].getStatus().sum() -1;
-		numConstraint +=addConstraint;
-	}		
+	int numConstraint = countEqConstraintRows();
 	for(int i=0;i<dim;i++){
 		int add_constr=0;
 		if(add_eq_constr.size()!=0){
