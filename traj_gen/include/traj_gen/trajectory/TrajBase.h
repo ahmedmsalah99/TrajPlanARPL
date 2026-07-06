@@ -111,7 +111,10 @@ public:
 	//Gripper dependent 
 	//Can either use rotation matrix or declare a pitch
 	void calcPerchCond(double pitch);
-	bool genInEqFOV(double replan_time, Eigen::Vector3d target, Eigen::Vector4d pose, Eigen::Vector3d accel, QP_ineq_const * constraint);
+	//t_now is the ABSOLUTE time (from the start of the current solve's segment 0)
+	//that `pose`/`accel` were sampled at; used to locate which segment/local-time
+	//the returned constraint's basis rows should be expressed at.
+	bool genInEqFOV(double t_now, Eigen::Vector3d target, Eigen::Vector4d pose, Eigen::Vector3d accel, QP_ineq_const * constraint);
 	void calcPerchCond(Eigen::Matrix4d Rot);
 	//Configure perching parameters (maxInclinationAccel, vS1 into-surface, vS3 along-surface, min inclination rad)
 	void setPerchParams(double maxInclAccel, double normalVel, double slideVel, double minIncl);
