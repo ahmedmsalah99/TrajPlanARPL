@@ -2,6 +2,7 @@
 #include <ros_traj_gen_utils/ros_traj_utils.h>
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 using namespace std;
 
 ros_replan_utils::ros_replan_utils(){
@@ -317,21 +318,31 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	Eigen::Matrix4d targ_heading;
 	for (int i = curr_v;i < future_v.size();i++){
 		if(i == future_v.size()-1){
-			// Preserve the configured terminal yaw. lastPoint(3) used to be left
-			// uninitialized (Eigen::Vector4d's default constructor doesn't zero
-			// it), so the terminal yaw equality constraint was silently reading
-			// undefined stack memory -- it happened to read out near 0 in every
-			// test so far because those targets all sat directly ahead (bearing
-			// ~0 anyway), masking the bug. Any target with real lateral offset
-			// exposes it: the terminal yaw ends up wrong with no code ever having
-			// deliberately set it.
+			// Terminal yaw. lastPoint(3) used to be left uninitialized
+			// (Eigen::Vector4d's default constructor doesn't zero it), so the
+			// terminal yaw equality constraint was silently reading undefined
+			// stack memory -- it happened to read out near 0 in every test so
+			// far because those targets all sat directly ahead (bearing ~0
+			// anyway), masking the bug. Any target with real lateral offset
+			// exposes it. Two options, toggled by faceYawToTarget:
+			//  - preserve (default): keep whatever yaw the waypoint config
+			//    specified, same as before this bug existed.
+			//  - face target: compute the bearing from the current position to
+			//    the target, so the vehicle turns to face it on arrival.
 			Eigen::VectorXd origPos;
 			future_v[i].getPos(&origPos);
 			Eigen::Vector4d lastPoint;
 			lastPoint(0) = 	Target(0,3) ;
 			lastPoint(1) = 	Target(1,3);
 			lastPoint(2) =  Target(2,3);
-			lastPoint(3) =  origPos(3);
+			if(faceYawToTarget){
+				Eigen::VectorXd startPos;
+				start.getPos(&startPos);
+				lastPoint(3) = std::atan2(Target(1,3) - startPos(1), Target(0,3) - startPos(0));
+			}
+			else{
+				lastPoint(3) =  origPos(3);
+			}
 			//std::cout << " Target Used " << lastPoint <<std::endl;
 			waypoint last_waypoint(lastPoint);
 			future_v[i] = last_waypoint;
@@ -516,4 +527,8 @@ void ros_replan_utils::setReplanParams(double step, int maxRetries, double minSe
 	retryStep = step;
 	retryMax = maxRetries;
 	minSegTime = minSeg;
+}
+
+void ros_replan_utils::setFaceYawToTarget(bool in){
+	faceYawToTarget = in;
 }

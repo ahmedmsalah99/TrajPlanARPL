@@ -23,6 +23,7 @@ traj_exe:
     replan_retry_step: 0.2
     replan_retry_max: 10
     replan_min_seg: 0.5
+    face_yaw_to_target: false  # true: set terminal yaw to bearing-toward-target each replan
     # Field-of-view constraint (off until task 3)
     fov_enable: false
     fov_margin: 0.0
