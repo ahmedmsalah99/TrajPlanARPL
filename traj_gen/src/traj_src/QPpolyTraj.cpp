@@ -210,10 +210,17 @@ Eigen::MatrixXd QPpolyTraj::SMsolve(int minDeriv)
                     C,
                     qp_ineq_constr.d,qp_ineq_constr.f,
 					sol,ignoreUnknownError)){
-		traj_valid[0] = true; 
-		traj_valid[1] = true; 
-		traj_valid[2] = true; 
-		traj_valid[3] = true; 
+		// Unlike thread_QP (per-axis), this success path previously printed
+		// nothing at all -- only failure was logged. That made it impossible to
+		// tell from the log whether the joint FOV solve ever actually succeeded,
+		// e.g. earlier in a replan sequence when more segment time/distance is
+		// left, before later failing once time shrinks near the end.
+		std::cout << "QP successful generation [joint solve, all axes]"
+		          << " numIneqRows=" << qp_ineq_constr.d.rows() << std::endl;
+		traj_valid[0] = true;
+		traj_valid[1] = true;
+		traj_valid[2] = true;
+		traj_valid[3] = true;
 	}
 	else{
 		std::cout << "QP Failed generation [joint solve, all axes]"
