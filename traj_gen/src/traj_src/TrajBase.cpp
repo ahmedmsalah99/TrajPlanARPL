@@ -699,3 +699,14 @@ bool TrajBase::genInEqFOV(double t_now, Eigen::Vector3d target, 	Eigen::Vector4d
 	return true;
 }
 
+double TrajBase::checkFovAxisAngle(Eigen::Vector3d target, Eigen::Vector4d pose, Eigen::Vector3d accel){
+	FOV_constraint fov(pose, accel, fovCamTilt);
+	fov_zero_order e = fov.fov_eval(target);
+	Eigen::Vector3d nd = target - Eigen::Vector3d(pose[0], pose[1], pose[2]);
+	double nd_norm = nd.norm();
+	if(nd_norm < 1e-9){ return 0.0; }
+	double cosang = e.axis.normalized().dot(nd/nd_norm);
+	cosang = std::max(-1.0, std::min(1.0, cosang));
+	return std::acos(cosang) * 180.0 / M_PI;
+}
+

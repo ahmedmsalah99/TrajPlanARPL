@@ -287,6 +287,28 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 			fov_pose.push_back(pose_fov);
 			fov_accel.push_back(accelfov);
 		}
+
+		// [FOVDIAG][SWEEP] Independent of replan cadence and fov_coverage_fraction:
+		// sample the SAME still-valid previous trajectory at a fixed sweep of times
+		// from the true segment start (t=0), to see how fast the camera axis drifts
+		// off the target as a function of time-since-start alone. t_elap (the floor
+		// the coverage-fraction samples above are anchored to) is itself already
+		// ~0.05-0.09s due to the replan cadence/lookahead -- this sweep checks
+		// whether there's any usable window at all before that floor, i.e. whether
+		// shrinking fov_coverage_fraction could ever help, or whether the
+		// misalignment is already too far along by the earliest achievable sample.
+		Eigen::Vector3d sweepTarget(Target(0,3), Target(1,3), Target(2,3));
+		for(double tSweep = 0.0; tSweep <= 0.3 + 1e-9; tSweep += 0.02){
+			Eigen::MatrixXd sw = trajectory->evalTraj(tSweep);
+			Eigen::Vector4d swPose;
+			Eigen::Vector3d swAcc;
+			for(int i=0;i<4;i++){
+				swPose[i] = sw(0,i);
+				if(i!=3){ swAcc[i] = sw(2,i); }
+			}
+			double ang = trajectory->checkFovAxisAngle(sweepTarget, swPose, swAcc);
+			std::cout << "[FOVDIAG][SWEEP] t=" << tSweep << " angle_deg=" << ang << std::endl;
+		}
 	}
 
 	//Clear the last trajectories
