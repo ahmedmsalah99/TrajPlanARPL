@@ -123,6 +123,10 @@ public:
 	//that `pose`/`accel` were sampled at; used to locate which segment/local-time
 	//the returned constraint's basis rows should be expressed at.
 	bool genInEqFOV(double t_now, Eigen::Vector3d target, Eigen::Vector4d pose, Eigen::Vector3d accel, QP_ineq_const * constraint);
+	//Diagnostic only: angle (degrees) between the modeled camera optical axis
+	//(built from pose/accel/yaw + fovCamTilt, same as genInEqFOV) and the true
+	//direction from pose to target. 0 = camera looks straight at the target.
+	double checkFovAxisAngle(Eigen::Vector3d target, Eigen::Vector4d pose, Eigen::Vector3d accel);
 	void calcPerchCond(Eigen::Matrix4d Rot);
 	//Configure perching parameters (maxInclinationAccel, vS1 into-surface, vS3 along-surface, min inclination rad)
 	void setPerchParams(double maxInclAccel, double normalVel, double slideVel, double minIncl);
