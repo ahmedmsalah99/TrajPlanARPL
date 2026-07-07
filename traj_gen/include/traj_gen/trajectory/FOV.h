@@ -11,6 +11,7 @@ typedef struct {
 typedef struct {
     double left ; //Position x,y,z and acceleration x,y,z
     double right;
+    Eigen::Vector3d axis; // computed camera optical axis (unit vector, world frame) -- diagnostic only
 } fov_zero_order;
 
 
@@ -20,7 +21,7 @@ private:
 	const double r_h = .76732;
 	//const double r_h = 1;
 	const double g = 9.81;
-	double camTilt;            // camera mount tilt (rad): optical axis = b3 rotated about b2 by (pi/2 + camTilt)
+	double camTilt;            // camera mount tilt (rad): optical axis = b3 rotated about b2 by -(pi/2 + camTilt)
 	Eigen::Vector4d init_pos;
 	Eigen::Vector3d init_acc;
 	Eigen::Matrix3d R;
