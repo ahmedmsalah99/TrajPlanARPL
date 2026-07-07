@@ -675,6 +675,27 @@ bool TrajBase::genInEqFOV(double t_now, Eigen::Vector3d target, 	Eigen::Vector4d
 	          << " bearing_to_target=" << bearing_to_target
 	          << " yaw_err=" << yaw_err
 	          << " (0=camera faces target, +-pi=camera faces away)" << std::endl;
+
+	// Optical-axis diagnostic: the modeled camera axis (n_proj, built from B2/B3
+	// via the Rodrigues rotation) vs. the actual direction to the target. If
+	// these are far apart even when yaw_err above is small, the mismatch is in
+	// the axis construction itself (thrust-axis/mount-rotation geometry), not
+	// in yaw -- this caught a rotation-sign bug (was rotating +[pi/2+camTilt]
+	// instead of -[pi/2+camTilt]) that made the camera face ~120 deg away from
+	// the target regardless of position/yaw being correct.
+	fov_zero_order axisCheck = fov.fov_eval(target);
+	Eigen::Vector3d nd = target - Eigen::Vector3d(pose[0], pose[1], pose[2]);
+	double nd_norm = nd.norm();
+	double axis_angle_deg = 0.0;
+	if(nd_norm > 1e-9){
+		double cosang = axisCheck.axis.normalized().dot(nd/nd_norm);
+		cosang = std::max(-1.0, std::min(1.0, cosang));
+		axis_angle_deg = std::acos(cosang) * 180.0 / M_PI;
+	}
+	std::cout << "[FOVDIAG][AXIS] optical_axis=[" << axisCheck.axis[0] << "," << axisCheck.axis[1] << "," << axisCheck.axis[2] << "]"
+	          << " dir_to_target=[" << (nd_norm>1e-9?nd[0]/nd_norm:0) << "," << (nd_norm>1e-9?nd[1]/nd_norm:0) << "," << (nd_norm>1e-9?nd[2]/nd_norm:0) << "]"
+	          << " angle_deg=" << axis_angle_deg
+	          << " (0=camera axis points at target, 180=points directly away)" << std::endl;
 	return true;
 }
 
