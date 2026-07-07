@@ -375,36 +375,46 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	//the time allocation FOV is actually about to be solved against).
 	if(fovEnable){
 		int rows = fov_t_now.size();
-	    QP_ineq_const full_ineq_constr;
 	    int coeffNum = trajectory->getPolyOrder()*(trajectory->numWaypoints() - 1)*trajectory->getDim() ;
-		full_ineq_constr.C =Eigen::MatrixXd::Zero(rows,coeffNum);
-		// Sane, non-contradictory default (d <= f) so any row genInEqFOV doesn't
-		// populate (it currently always returns true, but just in case) stays a
-		// trivially-satisfied placeholder instead of an unconditionally
-		// infeasible one. The previous default (f=-1, d=1, i.e. d > f) made
-		// every row this loop failed to overwrite unsatisfiable by construction.
-		full_ineq_constr.f = Eigen::VectorXd::Constant(rows,50000);
-		full_ineq_constr.d = Eigen::VectorXd::Constant(rows,-50000);
 
 		Eigen::VectorXd pose_last;
 		future_v[future_v.size()-1].getPos(&pose_last);
 		Eigen::Vector3d end_point= pose_last.block<3,1>(0,0);
 
+		// genInEqFOV now returns MULTIPLE rows per sample (the FOV cone row plus
+		// the jerk bound and eq.(9) trust-region rows) -- collect them all first
+		// so rowsPerSample can be read off the first successful call instead of
+		// being duplicated as a magic number here and in TrajBase.cpp (the kind
+		// of manual size-sync that has already caused a rank-deficiency bug
+		// once in this codebase).
+		std::vector<QP_ineq_const> per_sample(rows);
+		std::vector<bool> sample_ok(rows, false);
+		int rowsPerSample = 0;
 		for(int k=0;k<rows;k++){
-			QP_ineq_const temp_ineq_constr;
 			// fov_t_now[k] (not t_elap) is the actual time fov_pose[k]/fov_accel[k]
 			// were sampled at -- genInEqFOV needs it to place the constraint's
 			// basis rows at the matching segment/local-time instead of always
 			// segment 0.
-			if (trajectory->genInEqFOV(fov_t_now[k],end_point, fov_pose[k], fov_accel[k], &temp_ineq_constr)){
-				full_ineq_constr.C.block(k, 0,1, coeffNum) = temp_ineq_constr.C.block(0, 0,1, coeffNum);
-				// Was hardcoded to index 0 regardless of k: rows 1..rows-1 of d/f
-				// kept their default-constructed (d > f, unconditionally
-				// infeasible) values, making the whole joint QP infeasible
-				// whenever FOV was enabled with more than one sample row.
-				full_ineq_constr.d(k) = temp_ineq_constr.d(0);
-				full_ineq_constr.f(k) = temp_ineq_constr.f(0);
+			if (trajectory->genInEqFOV(fov_t_now[k],end_point, fov_pose[k], fov_accel[k], &per_sample[k])){
+				sample_ok[k] = true;
+				rowsPerSample = per_sample[k].d.rows();
 			}
+		}
+
+		QP_ineq_const full_ineq_constr;
+		int totalRows = rows*rowsPerSample;
+		full_ineq_constr.C = Eigen::MatrixXd::Zero(totalRows, coeffNum);
+		// Sane, non-contradictory default (d <= f) so any row a sample failed to
+		// populate stays a trivially-satisfied placeholder instead of an
+		// unconditionally infeasible one.
+		full_ineq_constr.f = Eigen::VectorXd::Constant(totalRows, 50000);
+		full_ineq_constr.d = Eigen::VectorXd::Constant(totalRows, -50000);
+		for(int k=0;k<rows;k++){
+			if(!sample_ok[k]){ continue; }
+			int base = k*rowsPerSample;
+			full_ineq_constr.C.block(base, 0, rowsPerSample, coeffNum) = per_sample[k].C;
+			full_ineq_constr.d.segment(base, rowsPerSample) = per_sample[k].d;
+			full_ineq_constr.f.segment(base, rowsPerSample) = per_sample[k].f;
 		}
 		trajectory->push_joint_ineq_constr(full_ineq_constr);
 

@@ -25,8 +25,10 @@ private:
 	Eigen::Vector3d init_acc;
 	Eigen::Matrix3d R;
 	// FOV margin decomposition (on-axis 'right', off-axis 'left') of the target
-	// direction for a given position/acceleration (uses the stored yaw + camTilt).
-	fov_zero_order evalState(const Eigen::Vector3d& target, const Eigen::Vector3d& pos, const Eigen::Vector3d& acc);
+	// direction for a given position/acceleration/yaw (+ camTilt). yaw is an
+	// explicit parameter (not read from init_pos) so derivative_FOV can perturb
+	// it independently when building the linearization's yaw partial.
+	fov_zero_order evalState(const Eigen::Vector3d& target, const Eigen::Vector3d& pos, const Eigen::Vector3d& acc, double yaw);
 public:
 	FOV_constraint(Eigen::Vector4d init_pos, Eigen::Vector3d init_acc, double camTilt = 0.25);
 	//returns a matrix that details the inequaltiy constraint

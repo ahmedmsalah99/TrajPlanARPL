@@ -57,6 +57,14 @@ protected:
 	double perchBandEps = 0.2;        // small additive slack so the band never collapses to a point
 	double fovCamTilt = 0.25;         // FOV camera mount tilt (rad)
 	double fovMargin = 0.0;           // FOV safety margin: keep linearized margin >= this
+	// eq.(9) trust region: bounds how far the actual sampled point (x,a,yaw) is
+	// allowed to be from its linearization point (x0,a0,yaw0), so the first-order
+	// Taylor expansion of the FOV cone constraint stays valid. Enforced as a
+	// per-axis (L-infinity) box -- a conservative approximation of the paper's
+	// L2 ball, kept linear so it fits the existing d <= Cx <= f QP form.
+	double fovTrustPos = 0.05;        // m, per axis (x,y,z)
+	double fovTrustAcc = 0.2;         // m/s^2, per axis (ax,ay,az)
+	double fovTrustYaw = 0.1;         // rad
 	// Minimum-altitude constraint: enforced as an upper bound on z across every
 	// segment of the trajectory (NED: altitude above the origin = -z).
 	bool minAltitudeEnabled = false;
@@ -124,6 +132,10 @@ public:
 	void setFovCamTilt(double tilt);
 	//Configure the FOV safety margin (linearized margin kept >= this)
 	void setFovMargin(double m);
+	//Configure the eq.(9) trust region (per-axis box half-widths) bounding how
+	//far the trajectory may sample from each FOV constraint's linearization point
+	//(pos in m, accel in m/s^2, yaw in rad)
+	void setFovTrustRegion(double pos, double acc, double yaw);
 	//Configure the minimum-altitude constraint: when enabled, z is upper-bounded
 	//across every segment of the trajectory so the world altitude (-z in NED)
 	//never drops below minAlt (metres). Disabled by default.
