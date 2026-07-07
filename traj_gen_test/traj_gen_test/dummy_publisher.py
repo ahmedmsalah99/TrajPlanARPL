@@ -9,6 +9,13 @@ Publishes the inputs traj_exe consumes:
 The odometry is published continuously (a hover by default) so the planner has a
 start state and the apriltag odom buffer fills. The waypoints are published once
 (or periodically) to trigger planning/execution.
+
+The 'tag_pose' parameter is configured relative to the BODY frame (intuitive:
+"pad 4m ahead, 2m below" reads the same no matter how the camera is mounted).
+publish_tag() inverts cam_translation/body_r_cam/theta_from_nadir_deg to
+publish the equivalent CAMERA-frame pose, which is what a real AprilTag
+detector actually reports and what apriltag_utils::WorldRot expects on this
+topic. With identity extrinsics (the default) this is a no-op.
 """
 import math
 
@@ -57,18 +64,39 @@ def _mat3_to_quat(r):
     return (x, y, z, w)
 
 
-def _cam_to_body_quat(body_r_cam_flat, theta_from_nadir_deg):
-    """Camera-frame -> body-frame rotation, mirroring traj_manager.cpp's
-    R = Rtilt_y(theta_from_hor) * body_R_cam, converted to a TF quaternion
-    (x, y, z, w)."""
+def _mat3_transpose(a):
+    return [[a[j][i] for j in range(3)] for i in range(3)]
+
+
+def _mat3_vec_mul(a, v):
+    return [sum(a[i][k] * v[k] for k in range(3)) for i in range(3)]
+
+
+def _quat_to_mat3(q):
+    """Quaternion (x, y, z, w) -> rotation matrix (3x3 nested list)."""
+    x, y, z, w = q
+    return [
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ]
+
+
+def _cam_to_body_mat(body_r_cam_flat, theta_from_nadir_deg):
+    """Camera-frame -> body-frame rotation matrix, mirroring traj_manager.cpp's
+    R = Rtilt_y(theta_from_hor) * body_R_cam."""
     body_r_cam = [list(body_r_cam_flat[0:3]), list(body_r_cam_flat[3:6]), list(body_r_cam_flat[6:9])]
     theta_from_hor = (90.0 - theta_from_nadir_deg) * (math.pi / 180.0)
     c, s = math.cos(theta_from_hor), math.sin(theta_from_hor)
     r_tilt_y = [[c, 0.0, s],
                 [0.0, 1.0, 0.0],
                 [-s, 0.0, c]]
-    r = _mat3_mul(r_tilt_y, body_r_cam)
-    return _mat3_to_quat(r)
+    return _mat3_mul(r_tilt_y, body_r_cam)
+
+
+def _cam_to_body_quat(body_r_cam_flat, theta_from_nadir_deg):
+    """Camera-frame -> body-frame rotation, as a TF quaternion (x, y, z, w)."""
+    return _mat3_to_quat(_cam_to_body_mat(body_r_cam_flat, theta_from_nadir_deg))
 
 
 class DummyPublisher(Node):
@@ -92,6 +120,15 @@ class DummyPublisher(Node):
         # densify the waypoint list so no two consecutive points are farther apart
         # than this (metres); <= 0 disables interpolation and publishes them as-is
         self.declare_parameter('max_segment_len', 1.0)
+        # Target pose [x, y, z, roll, pitch, yaw] relative to the BODY frame --
+        # NOT the camera frame the message is actually published in. This is
+        # deliberately intuitive to configure (e.g. "flat pad 4m ahead, 2m
+        # below" reads the same regardless of how the camera is mounted):
+        # publish_tag() inverts cam_translation/body_r_cam/theta_from_nadir_deg
+        # to compute and publish the equivalent camera-frame pose, which is
+        # what a real AprilTag detector would actually report (tag pose as
+        # seen by the camera). If those extrinsics are identity (the default),
+        # this transform is a no-op and body frame == camera frame.
         self.declare_parameter('tag_pose',[4.0, 1.0, 2.0, 0.0,1.57,0.0])
         # camera offset in the body (base_link) frame, in metres. Must match the
         # planner's cam_translation so the dummy's tag (published in the 'camera'
@@ -278,19 +315,39 @@ class DummyPublisher(Node):
             self.wp_timer.cancel()
 
     def publish_tag(self):
+        # tag_pose is configured relative to the BODY frame (see the parameter
+        # doc above). Convert it to the CAMERA frame before publishing, since
+        # that's the frame a real AprilTag detector reports in and the frame
+        # apriltag_utils::WorldRot expects on this topic:
+        #   p_body = cam_to_body_R * p_cam + cam_translation
+        #   R_body = cam_to_body_R * R_cam
+        # so, solving for the camera-frame pose (cam_to_body_R is a rotation
+        # matrix, so its inverse is its transpose):
+        #   p_cam = cam_to_body_R^T * (p_body - cam_translation)
+        #   R_cam = cam_to_body_R^T * R_body
         tag_pose = list(self.get_parameter('tag_pose').value)
-        q = self.rpy_to_quaternion(tag_pose[3],tag_pose[4],tag_pose[5])
+        p_body = tag_pose[0:3]
+        q_body = self.rpy_to_quaternion(tag_pose[3], tag_pose[4], tag_pose[5])
+        r_body = _quat_to_mat3(q_body)
+
+        cam_to_body_r = _cam_to_body_mat(self.body_r_cam, self.theta_from_nadir_deg)
+        body_to_cam_r = _mat3_transpose(cam_to_body_r)
+
+        p_offset = [p_body[i] - self.cam_translation[i] for i in range(3)]
+        p_cam = _mat3_vec_mul(body_to_cam_r, p_offset)
+        r_cam = _mat3_mul(body_to_cam_r, r_body)
+        q_cam = _mat3_to_quat(r_cam)
+
         ps = PoseStamped()
         ps.header.stamp = self.get_clock().now().to_msg()
         ps.header.frame_id = 'camera'
-        ps.pose.position.x = tag_pose[0]
-        ps.pose.position.y = tag_pose[1]
-        ps.pose.position.z = tag_pose[2]          # in front of the camera
-        # rpy_to_quaternion returns (x, y, z, w)
-        ps.pose.orientation.x = q[0]
-        ps.pose.orientation.y = q[1]
-        ps.pose.orientation.z = q[2]
-        ps.pose.orientation.w = q[3]
+        ps.pose.position.x = p_cam[0]
+        ps.pose.position.y = p_cam[1]
+        ps.pose.position.z = p_cam[2]
+        ps.pose.orientation.x = q_cam[0]
+        ps.pose.orientation.y = q_cam[1]
+        ps.pose.orientation.z = q_cam[2]
+        ps.pose.orientation.w = q_cam[3]
         self.tag_pub.publish(ps)
 
     def rpy_to_quaternion(self,roll, pitch, yaw, degrees=False):
