@@ -10,11 +10,20 @@ FOV_constraint::FOV_constraint(Eigen::Vector4d pos, Eigen::Vector3d acc, double 
 
 // Decompose the target direction relative to the camera optical axis, for a given
 // position/acceleration/yaw. The optical axis is the thrust axis b3 rotated about
-// the body y-axis b2 by (pi/2 + camTilt) (Rodrigues' formula); camTilt is the
+// the body y-axis b2 by -(pi/2 + camTilt) (Rodrigues' formula); camTilt is the
 // camera mount tilt. Returns the on-axis distance ('right') and off-axis distance
 // ('left'); the FOV margin used downstream is (r_h*right - left), eq.(7). yaw is
 // an explicit parameter (not read from init_pos) so derivative_FOV can perturb it
 // independently when building the linearization's yaw partial.
+//
+// Rotation sign: verify at the degenerate hover case (yaw=0, camTilt=0, pure
+// vertical thrust b3=(0,0,-1) in NED). A yaw=0, zero-tilt camera must look along
+// world +x. b2=(0,1,0) there, so Rodrigues at th=+pi/2 gives n_proj = b2 x b3 =
+// (0,1,0)x(0,0,-1) = (-1,0,0) -- backward. th=-pi/2 gives n_proj = -(b2 x b3) =
+// (1,0,0) -- forward, the correct answer. Confirmed numerically against replan
+// telemetry too: with the +pi/2 sign the modeled optical axis came out
+// 117-125 degrees away from the actual bearing to the target (i.e. facing
+// almost the opposite way) even when position and yaw were both correct.
 fov_zero_order FOV_constraint::evalState(const Eigen::Vector3d& target,
                                          const Eigen::Vector3d& pos,
                                          const Eigen::Vector3d& acc,
@@ -25,7 +34,7 @@ fov_zero_order FOV_constraint::evalState(const Eigen::Vector3d& target,
 	Eigen::Vector3d nd = target - pos;                         // quad -> target
 	// thrust axis b3 = normalize(acc + g*e3); in NED (z-down) e3=(0,0,-1) so this is acc.z - g
 	Eigen::Vector3d B3 = acc; B3[2] -= g; B3 = B3.normalized();
-	double th = pi/2.0 + camTilt;                              // optical axis angle from b3 about b2
+	double th = -(pi/2.0 + camTilt);                           // optical axis angle from b3 about b2
 	Eigen::Vector3d n_proj = B3*cos(th)
 	                       + B2.cross(B3)*sin(th)
 	                       + B2*(B2.dot(B3))*(1.0 - cos(th));  // Rodrigues rotation of B3 about B2
@@ -33,6 +42,7 @@ fov_zero_order FOV_constraint::evalState(const Eigen::Vector3d& target,
 	Eigen::Vector3d on_axis = n_proj*proj;
 	eval.left  = (nd - on_axis).norm();                        // off-axis (perpendicular) distance
 	eval.right = on_axis.norm();                               // on-axis distance
+	eval.axis  = n_proj;                                       // diagnostic: computed optical axis (unit vector)
 	return eval;
 }
 
