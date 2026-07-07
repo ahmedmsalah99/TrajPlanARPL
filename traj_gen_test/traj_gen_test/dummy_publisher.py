@@ -22,6 +22,55 @@ from geometry_msgs.msg import PoseStamped, TransformStamped
 from tf2_ros import TransformBroadcaster, StaticTransformBroadcaster
 
 
+def _mat3_mul(a, b):
+    """3x3 matrix multiply, a and b as 3x3 nested lists."""
+    return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+
+
+def _mat3_to_quat(r):
+    """Standard robust rotation-matrix -> quaternion (x, y, z, w)."""
+    trace = r[0][0] + r[1][1] + r[2][2]
+    if trace > 0.0:
+        s = 0.5 / math.sqrt(trace + 1.0)
+        w = 0.25 / s
+        x = (r[2][1] - r[1][2]) * s
+        y = (r[0][2] - r[2][0]) * s
+        z = (r[1][0] - r[0][1]) * s
+    elif r[0][0] > r[1][1] and r[0][0] > r[2][2]:
+        s = 2.0 * math.sqrt(1.0 + r[0][0] - r[1][1] - r[2][2])
+        w = (r[2][1] - r[1][2]) / s
+        x = 0.25 * s
+        y = (r[0][1] + r[1][0]) / s
+        z = (r[0][2] + r[2][0]) / s
+    elif r[1][1] > r[2][2]:
+        s = 2.0 * math.sqrt(1.0 + r[1][1] - r[0][0] - r[2][2])
+        w = (r[0][2] - r[2][0]) / s
+        x = (r[0][1] + r[1][0]) / s
+        y = 0.25 * s
+        z = (r[1][2] + r[2][1]) / s
+    else:
+        s = 2.0 * math.sqrt(1.0 + r[2][2] - r[0][0] - r[1][1])
+        w = (r[1][0] - r[0][1]) / s
+        x = (r[0][2] + r[2][0]) / s
+        y = (r[1][2] + r[2][1]) / s
+        z = 0.25 * s
+    return (x, y, z, w)
+
+
+def _cam_to_body_quat(body_r_cam_flat, theta_from_nadir_deg):
+    """Camera-frame -> body-frame rotation, mirroring traj_manager.cpp's
+    R = Rtilt_y(theta_from_hor) * body_R_cam, converted to a TF quaternion
+    (x, y, z, w)."""
+    body_r_cam = [list(body_r_cam_flat[0:3]), list(body_r_cam_flat[3:6]), list(body_r_cam_flat[6:9])]
+    theta_from_hor = (90.0 - theta_from_nadir_deg) * (math.pi / 180.0)
+    c, s = math.cos(theta_from_hor), math.sin(theta_from_hor)
+    r_tilt_y = [[c, 0.0, s],
+                [0.0, 1.0, 0.0],
+                [-s, 0.0, c]]
+    r = _mat3_mul(r_tilt_y, body_r_cam)
+    return _mat3_to_quat(r)
+
+
 class DummyPublisher(Node):
     def __init__(self):
         super().__init__('traj_gen_dummy_publisher')
@@ -46,9 +95,24 @@ class DummyPublisher(Node):
         self.declare_parameter('tag_pose',[4.0, 1.0, 2.0, 0.0,1.57,0.0])
         # camera offset in the body (base_link) frame, in metres. Must match the
         # planner's cam_translation so the dummy's tag (published in the 'camera'
-        # frame) maps to the same world target the planner computes. Identity
-        # rotation: this assumes the planner runs with simple_extrinsics=true.
+        # frame) maps to the same world target the planner computes.
         self.declare_parameter('cam_translation', [0.0, 0.0, 0.0])
+        # Camera-frame -> body-frame rotation, mirroring the planner's own
+        # extrinsics (traj_manager.cpp): R = Rtilt_y(theta_from_hor) * body_R_cam.
+        # Only used to build the 'camera' static TF below for correct RViz
+        # visualization -- the planner computes its own H_RC independently from
+        # its own config, not from TF, so these don't need to match exactly for
+        # planning to work, but should match if you want the visualized camera
+        # frame to reflect what the planner is actually assuming.
+        # body_r_cam: fixed mount convention (row-major 3x3). Defaults to
+        # identity (a body-frame-aligned camera); set to match a real rig's
+        # nadir-facing (or other) mount, same as the planner's body_r_cam param.
+        self.declare_parameter('body_r_cam', [1.0, 0.0, 0.0,
+                                              0.0, 1.0, 0.0,
+                                              0.0, 0.0, 1.0])
+        # theta_from_nadir_deg: additional tilt UP from nadir (deg), same as the
+        # planner's theta_from_nadir_deg param. 90 = no additional tilt.
+        self.declare_parameter('theta_from_nadir_deg', 90.0)
         # TF so RViz can resolve the planner's frames (set Fixed Frame = fixed_frame)
         self.declare_parameter('publish_tf', True)
         self.declare_parameter('fixed_frame', 'map')
@@ -65,6 +129,8 @@ class DummyPublisher(Node):
         self.rviz_enu_flip = bool(self.get_parameter('rviz_enu_flip').value)
         self.max_segment_len = float(self.get_parameter('max_segment_len').value)
         self.cam_translation = list(self.get_parameter('cam_translation').value)
+        self.body_r_cam = list(self.get_parameter('body_r_cam').value)
+        self.theta_from_nadir_deg = float(self.get_parameter('theta_from_nadir_deg').value)
 
         if self.publish_tf:
             # static transforms: fixed_frame -> {planner frames}, and a camera frame
@@ -84,10 +150,13 @@ class DummyPublisher(Node):
                     continue
                 seen.add(f)
                 statics.append(self._static_tf(self.fixed_frame, f, flip))
-            # camera is identity-rotated under base_link, offset by cam_translation
-            # (must match the planner's cam_translation under simple_extrinsics).
+            # camera under base_link, offset by cam_translation and rotated by
+            # body_r_cam/theta_from_nadir_deg -- same construction as the
+            # planner's own extrinsics (traj_manager.cpp), so the visualized
+            # camera frame matches what the planner is actually assuming.
+            cam_quat = _cam_to_body_quat(self.body_r_cam, self.theta_from_nadir_deg)
             statics.append(self._static_tf('base_link', 'camera',
-                                           (0.0, 0.0, 0.0, 1.0), self.cam_translation))
+                                           cam_quat, self.cam_translation))
             self.static_tf.sendTransform(statics)
 
 
