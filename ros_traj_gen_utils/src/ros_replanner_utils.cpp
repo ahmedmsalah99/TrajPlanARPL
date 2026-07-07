@@ -449,14 +449,27 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		// tightest-time) attempt failed, regardless of whether FOV itself was
 		// even the cause.
 		Eigen::MatrixXd coeffQP_fov = trajectory->solve(degreeOpt);
+		// Remaining segment time at the point of this attempt -- to correlate
+		// FOV solve outcome with how much time/distance is left in the flight
+		// (e.g. does it succeed earlier with more time left, then start failing
+		// as the remaining segment time shrinks near the end).
+		double remainingTime = 0.0;
+		for(size_t i = 0; i < trajectory->segmentTimes.size(); i++){
+			remainingTime += trajectory->segmentTimes[i];
+		}
 		if(!trajectory->checkSolved()){
 			std::cout << "[replan] FOV solve failed at base-feasible time -- "
-			          << "falling back to the no-FOV solution" << std::endl;
+			          << "falling back to the no-FOV solution"
+			          << " remainingTime=" << remainingTime << std::endl;
 			trajectory->clear_ineq();
 			trajectory->clearCostVector();
 			trajectory->overideSolve();
 			trajectory->coeffSolved = coeffSolved_base;
 			trajectory->segmentTimes = segmentTimes_base;
+		}
+		else{
+			std::cout << "[replan] FOV solve succeeded"
+			          << " remainingTime=" << remainingTime << std::endl;
 		}
 	}
 
