@@ -32,6 +32,7 @@ traj_exe:
     fov_trust_pos: 0.05         # m, per axis (x,y,z)
     fov_trust_acc: 0.2          # m/s^2, per axis (ax,ay,az)
     fov_trust_yaw: 0.1          # rad
+    fov_horizontal_fov: 1.309   # camera horizontal FOV (rad); r_h = tan(fov/2), eq.(7) -- reproduces the old hard-coded r_h=0.76732
     # Minimum altitude enforced across the whole trajectory (NED: upper bound on z)
     min_altitude_enable: false
     min_altitude: 0.3
@@ -39,7 +40,13 @@ traj_exe:
     # The dummy must use the SAME cam_translation (its base_link->camera offset)
     # so both agree on the world target.
     cam_translation: [0.0, 0.0, 0.0]
+    # cam_tilt is ONLY used by the FOV optical-axis model now; the apriltag
+    # extrinsics' camera-to-body rotation is body_r_cam/theta_from_nadir_deg below.
     cam_tilt: 0.0
+    body_r_cam: [1.0, 0.0, 0.0,
+                 0.0, 1.0, 0.0,
+                 0.0, 0.0, 1.0]
+    theta_from_nadir_deg: 90.0  # 90 = no additional tilt (identity rotation)
     tag_translation: [0.0, 0.0, 0.0]
     # NOTE: the tag's orientation maps directly to the goal surface normal
     # s3 (= the tag rotation's 3rd column, in NED). Set the

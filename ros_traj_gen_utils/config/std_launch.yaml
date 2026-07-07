@@ -33,12 +33,22 @@ traj_exe:
     fov_trust_pos: 0.05         # m, per axis (x,y,z)
     fov_trust_acc: 0.2          # m/s^2, per axis (ax,ay,az)
     fov_trust_yaw: 0.1          # rad
+    fov_horizontal_fov: 1.309   # camera horizontal FOV (rad); r_h = tan(fov/2), eq.(7) -- reproduces the old hard-coded r_h=0.76732
     # Minimum altitude enforced across the whole trajectory (NED: upper bound on z)
     min_altitude_enable: false  # add the min-altitude inequality to every segment
     min_altitude: 0.3           # metres above the world origin
     # Camera / tag extrinsics (used in visual perching)
     cam_translation: [0.3, 0.0, 0.0]   # camera position offset in the body frame (m)
-    cam_tilt: 0.25                      # camera mount tilt (rad); shared by the FOV optical axis and the apriltag extrinsic
+    # cam_tilt is ONLY used by the FOV optical-axis model now (still under
+    # investigation -- see body_r_cam/theta_from_nadir_deg for the apriltag
+    # extrinsics' camera-to-body rotation, which used to share this knob)
+    cam_tilt: 0.25
+    # Camera-to-body rotation for the apriltag extrinsics = Rtilt_y * body_r_cam.
+    # Defaults (identity, theta=90) reproduce the old identity-rotation behavior.
+    body_r_cam: [1.0, 0.0, 0.0,
+                 0.0, 1.0, 0.0,
+                 0.0, 0.0, 1.0]
+    theta_from_nadir_deg: 90.0
     tag_translation: [0.0, 0.0, 0.0]    # tag -> target translation offset (m)
     # 4x4 target (row-major, given for perching manually):
     # row1: 0  0 -1 0

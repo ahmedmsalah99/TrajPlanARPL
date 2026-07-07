@@ -18,8 +18,10 @@ typedef struct {
 class FOV_constraint
 {
 private:
-	const double r_h = .76732;
-	//const double r_h = 1;
+	// Cone ratio r/h = tan(horizontal_FOV / 2), eq.(7): left <= r_h*right. Default
+	// reproduces the original hard-coded value; pass the real camera's ratio via
+	// the constructor (derived from its horizontal FOV) to match actual hardware.
+	double r_h;
 	const double g = 9.81;
 	double camTilt;            // camera mount tilt (rad): optical axis = b3 rotated about b2 by -(pi/2 + camTilt)
 	Eigen::Vector4d init_pos;
@@ -31,7 +33,7 @@ private:
 	// it independently when building the linearization's yaw partial.
 	fov_zero_order evalState(const Eigen::Vector3d& target, const Eigen::Vector3d& pos, const Eigen::Vector3d& acc, double yaw);
 public:
-	FOV_constraint(Eigen::Vector4d init_pos, Eigen::Vector3d init_acc, double camTilt = 0.25);
+	FOV_constraint(Eigen::Vector4d init_pos, Eigen::Vector3d init_acc, double camTilt = 0.25, double r_h = 0.76732);
 	//returns a matrix that details the inequaltiy constraint
 	fov_constr derivative_FOV(Eigen::Vector3d target);
 	//returns the first order evaluation

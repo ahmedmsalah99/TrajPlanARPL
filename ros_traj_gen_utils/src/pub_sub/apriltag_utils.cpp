@@ -3,22 +3,23 @@ using namespace std;
 
 apriltag_utils::apriltag_utils(){
 	// Defaults reproduce the original hard-coded extrinsics (camera 0.3 m forward,
-	// no tilt, no tag translation offset). Override via setExtrinsics() from config.
-	setExtrinsics(Eigen::Vector3d(0.3, 0.0, 0.0), 0.0, Eigen::Vector3d(0.0, 0.0, 0.0));
+	// identity rotation, no tag translation offset). Override via setExtrinsics()
+	// from config.
+	setExtrinsics(Eigen::Vector3d(0.3, 0.0, 0.0), Eigen::Matrix3d::Identity(), Eigen::Vector3d(0.0, 0.0, 0.0));
 }
 
 // Build the camera-in-body transform H_RC and the tag->target transform H_TAG.
-//  - H_RC rotation = fixed axis convention (rot1) tilted about the camera x-axis by
-//    camTilt (the old commented "rotx -14 deg"; ~ -0.25 rad on the real rig).
+//  - H_RC rotation = camToBodyRot, the full camera-frame -> body-frame rotation.
+//    This covers both a fixed mount convention (e.g. a nadir-facing camera whose
+//    axes don't line up 1:1 with the body axes) and any additional tilt, composed
+//    by the caller (e.g. Rtilt_y * body_R_cam for a camera tilted up from nadir by
+//    some angle). The tag pose is taken directly in the camera frame.
 //  - camTranslation is the camera position offset in the body frame.
 //  - H_TAG rotation is a fixed convention; tagTranslation is its translation offset.
-void apriltag_utils::setExtrinsics(const Eigen::Vector3d& camTranslation, double camTilt,
+void apriltag_utils::setExtrinsics(const Eigen::Vector3d& camTranslation, const Eigen::Matrix3d& camToBodyRot,
                                    const Eigen::Vector3d& tagTranslation){
-	// Camera optical frame aligned with the body frame, tilted about the camera
-	// x-axis by camTilt; the tag pose is taken directly in the camera frame. Set
-	// cam_tilt / cam_translation / tag_translation in config to match the rig.
 	H_RC = Eigen::Matrix4d::Identity();
-	H_RC.block<3,3>(0,0) = Eigen::AngleAxisd(camTilt, Eigen::Vector3d::UnitX()).toRotationMatrix();
+	H_RC.block<3,3>(0,0) = camToBodyRot;
 	H_RC.block<3,1>(0,3) = camTranslation;
 
 	H_TAG = Eigen::Matrix4d::Identity();

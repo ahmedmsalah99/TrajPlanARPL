@@ -41,9 +41,11 @@ apriltag_utils();
 int flag = 0;
 
 void setNode(rclcpp::Node::SharedPtr node);
-//Configure camera/tag extrinsics: camera offset in body frame, camera tilt about
-//its x-axis (rad), and the tag->target translation offset.
-void setExtrinsics(const Eigen::Vector3d& camTranslation, double camTilt, const Eigen::Vector3d& tagTranslation);
+//Configure camera/tag extrinsics: camera offset in body frame, the full
+//camera-frame -> body-frame rotation (accounts for both the fixed mount
+//convention, e.g. a nadir-facing camera, and any additional tilt), and the
+//tag->target translation offset.
+void setExtrinsics(const Eigen::Vector3d& camTranslation, const Eigen::Matrix3d& camToBodyRot, const Eigen::Vector3d& tagTranslation);
 //Takes a stdTrajectory MSG and stores it in the private trajectory variable
 void aprilListen(const geometry_msgs::msg::PoseStamped &msg);
 void syncCallback(const geometry_msgs::msg::PoseArray &msg1,const nav_msgs::msg::Odometry &msg2);
