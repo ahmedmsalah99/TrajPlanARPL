@@ -478,6 +478,12 @@ void TrajBase::setFovMargin(double m){
 	fovMargin = m;
 }
 
+void TrajBase::setFovTrustRegion(double pos, double acc, double yaw){
+	fovTrustPos = pos;
+	fovTrustAcc = acc;
+	fovTrustYaw = yaw;
+}
+
 void TrajBase::setMinAltitude(bool enable, double minAlt){
 	minAltitudeEnabled = enable;
 	minAltitude = minAlt;
@@ -554,34 +560,28 @@ bool TrajBase::genInEqFOV(double t_now, Eigen::Vector3d target, 	Eigen::Vector4d
 {
         //std::cout << " strat ineq Fov" <<std::endl;
         int coeffNum = (vertices.size() - 1) *  polyOrder;
+	// Row layout: 0 = FOV cone constraint (eq.7-8), 1-3 = jerk bound, 4-6 =
+	// eq.(9) position trust region (x,y,z), 7-9 = eq.(9) acceleration trust
+	// region (x,y,z), 10 = eq.(9) yaw trust region.
+	const int kNumRows = 11;
 	QP_ineq_const ineq_const;
-	ineq_const.d= Eigen::VectorXd::Zero(4);
-	ineq_const.f= Eigen::VectorXd::Zero(4);
-	ineq_const.C = Eigen::MatrixXd::Zero(4, coeffNum*dim);
-	Eigen::MatrixXd const_conv =  Eigen::MatrixXd::Zero(6, coeffNum*dim);
+	ineq_const.d= Eigen::VectorXd::Zero(kNumRows);
+	ineq_const.f= Eigen::VectorXd::Zero(kNumRows);
+	ineq_const.C = Eigen::MatrixXd::Zero(kNumRows, coeffNum*dim);
+	// 7 rows: [posx,posy,posz,accx,accy,accz,yaw] -- matches derivative_FOV's
+	// 7-variable Jacobian (eq.7-8 differentiates w.r.t. position, acceleration,
+	// AND yaw; the old 6-variable version left yaw un-optimizable).
+	Eigen::MatrixXd const_conv =  Eigen::MatrixXd::Zero(7, coeffNum*dim);
 	//std::cout << " fov start " <<std::endl;
         FOV_constraint fov(pose, accel, fovCamTilt);
         //std::cout << " start derovative fov " <<std::endl;
 	fov_constr constr = fov.derivative_FOV(target);
-	//SGD Bound check to see if it is 
-	//Eigen::VectorXd sgd_step = 0.1*constr.Jacobian.normalized();
-	//for(int i =0;i<3;i++){
-	//	pose[i] -=sgd_step[i];
-	//	accel[i] -=sgd_step[i+3];
-	//}
-        //std::cout << "fov bound " <<std::endl;
-	//FOV_constraint fov_bound(pose, accel);
-	//fov_zero_order checker = fov_bound.fov_eval(target);
-	//std::cout << " fov check strat" <<std::endl;
-	//if(-10 >= checker.right-checker.left){
-	//	return false;
-	//}
 	//Else we do the calcualtion to add the full inequality constriant
 	// FOV constraint: keep the linearized margin g_lin(s) >= fovMargin, i.e. a LOWER
 	// bound on grad(g)·s. constr.diff = g(x0) + grad·x0, so g(x0) = constr.diff - grad·x0,
 	// and the wanted bound is  grad·s >= grad·x0 - g(x0) + fovMargin.
-	Eigen::VectorXd x0_state(6);
-	x0_state << pose[0], pose[1], pose[2], accel[0], accel[1], accel[2];
+	Eigen::VectorXd x0_state(7);
+	x0_state << pose[0], pose[1], pose[2], accel[0], accel[1], accel[2], pose[3];
 	double grad_dot_x0 = (constr.Jacobian * x0_state)(0);
 	double g_x0 = constr.diff - grad_dot_x0;            // = diff(x0), the current margin
 	ineq_const.d(0) = grad_dot_x0 - g_x0 + fovMargin;   // lower bound
@@ -617,13 +617,33 @@ bool TrajBase::genInEqFOV(double t_now, Eigen::Vector3d target, 	Eigen::Vector4d
 		ineq_const.f(i+1) = 15;//*sum_jacob_frac/sum_jacobian;
 		ineq_const.d(i+1) = -15;
 		ineq_const.C.block(i+1, colOff,1, polyOrder) = row_jerk;
-		//std::cout << "loop: " << i << std::endl;
-		//std::cout << ineq_const.C <<std::endl;
 		const_conv.block(i, colOff,1, polyOrder) = row_pos;
 		const_conv.block(i+3, colOff,1, polyOrder) = row_acc;
 		//Goal [posx ; posy; posz ; accx; accy; accz]
+
+		// eq.(9) trust region: keep the actual sampled position/acceleration
+		// within a per-axis box of this row's linearization point (pose/accel),
+		// so the Taylor expansion above (and the FOV row's Jacobian) stays a
+		// valid local approximation instead of being extrapolated arbitrarily
+		// far, as flagged by Fig.6 of the paper.
+		ineq_const.d(i+4) = pose[i]  - fovTrustPos;
+		ineq_const.f(i+4) = pose[i]  + fovTrustPos;
+		ineq_const.C.block(i+4, colOff,1, polyOrder) = row_pos;
+
+		ineq_const.d(i+7) = accel[i] - fovTrustAcc;
+		ineq_const.f(i+7) = accel[i] + fovTrustAcc;
+		ineq_const.C.block(i+7, colOff,1, polyOrder) = row_acc;
 	}
-	
+
+	// yaw is dimension index 3 (its own coefficient block); reuse the same
+	// position-basis row at this local time for both the FOV Jacobian's 7th
+	// column and the eq.(9) yaw trust region.
+	int yawColOff = coeffNum*3 + polyOrder*segIdx;
+	const_conv.block(6, yawColOff, 1, polyOrder) = row_pos;
+	ineq_const.d(10) = pose[3] - fovTrustYaw;
+	ineq_const.f(10) = pose[3] + fovTrustYaw;
+	ineq_const.C.block(10, yawColOff, 1, polyOrder) = row_pos;
+
 	//std::cout <<"constraint Jacobian " << constr.Jacobian.rows() <<std::endl;
 	ineq_const.C.block(0, 0,1, coeffNum*dim) = constr.Jacobian *const_conv;
 	*constraint = ineq_const ;
@@ -639,15 +659,14 @@ bool TrajBase::genInEqFOV(double t_now, Eigen::Vector3d target, 	Eigen::Vector4d
 	          << " d(0)=" << ineq_const.d(0) << " f(0)=" << ineq_const.f(0)
 	          << " Jacobian=" << constr.Jacobian << std::endl;
 	std::cout << "[FOVDIAG] row0 C norm=" << ineq_const.C.row(0).norm()
-	          << " row0 C nonzero-range cols=[0," << coeffNum*3 << ")" << std::endl;
+	          << " row0 C nonzero blocks: dims 0-2 (pos/accel) cols=[0," << coeffNum*3
+	          << "), dim 3 (yaw) cols=[" << coeffNum*3 << "," << coeffNum*4 << ")" << std::endl;
 
-	// Yaw diagnostic: derivative_FOV's Jacobian only covers [x,y,z,ax,ay,az] --
-	// yaw (pose[3]) is baked into FOV_constraint's B2/B3 axes but is never an
-	// optimizable variable in the linearization above. If the trajectory's
-	// actual yaw doesn't already point roughly at the target, the position/
-	// accel-only linear constraint has no lever to fix a wrong-heading camera.
-	// Print yaw vs. the horizontal bearing to the target so we can tell
-	// whether that's what's happening here.
+	// Yaw diagnostic: now that derivative_FOV's Jacobian includes yaw as a 7th
+	// variable (eq.7-8), this print shows whether the linearization point's
+	// yaw is close to or far from the bearing to the target -- a large
+	// yaw_err means the FOV row's linear correction (bounded by the eq.(9)
+	// trust region above) has real ground to cover, not just position/accel.
 	double bearing_to_target = std::atan2(target[1] - pose[1], target[0] - pose[0]);
 	double yaw_err = bearing_to_target - pose[3];
 	while(yaw_err > M_PI){ yaw_err -= 2*M_PI; }

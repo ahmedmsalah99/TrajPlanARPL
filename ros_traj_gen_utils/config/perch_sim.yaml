@@ -27,6 +27,11 @@ traj_exe:
     fov_enable: false
     fov_margin: 0.0
     fov_coverage_fraction: 0.5  # enforce FOV over only the first this-fraction of the remaining segment
+    # eq.(9) trust region: how far the trajectory may sample from each FOV row's
+    # linearization point before the first-order Taylor expansion is no longer valid
+    fov_trust_pos: 0.05         # m, per axis (x,y,z)
+    fov_trust_acc: 0.2          # m/s^2, per axis (ax,ay,az)
+    fov_trust_yaw: 0.1          # rad
     # Minimum altitude enforced across the whole trajectory (NED: upper bound on z)
     min_altitude_enable: false
     min_altitude: 0.3

@@ -310,6 +310,12 @@ int main(int argc, char** argv)
 	//FOV camera mount tilt (rad) -- shared cam_tilt knob
 	qp_traj.setFovCamTilt(getParamOr<double>("cam_tilt", 0.25));
 	qp_traj.setFovMargin(getParamOr<double>("fov_margin", 0.0));
+	//eq.(9) trust region: bounds how far the trajectory may sample from each
+	//FOV row's linearization point, so the Taylor expansion stays valid.
+	qp_traj.setFovTrustRegion(
+		getParamOr<double>("fov_trust_pos", 0.05),
+		getParamOr<double>("fov_trust_acc", 0.2),
+		getParamOr<double>("fov_trust_yaw", 0.1));
 	//Minimum altitude (metres above the world origin) enforced across the whole
 	//trajectory (NED: an upper bound on z). Disabled by default.
 	qp_traj.setMinAltitude(
