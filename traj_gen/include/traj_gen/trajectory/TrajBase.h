@@ -57,6 +57,7 @@ protected:
 	double perchBandEps = 0.2;        // small additive slack so the band never collapses to a point
 	double fovCamTilt = 0.25;         // FOV camera mount tilt (rad)
 	double fovMargin = 0.0;           // FOV safety margin: keep linearized margin >= this
+	double fovRh = 0.76732;           // FOV cone ratio r/h = tan(horizontal_FOV / 2), eq.(7)
 	// eq.(9) trust region: bounds how far the actual sampled point (x,a,yaw) is
 	// allowed to be from its linearization point (x0,a0,yaw0), so the first-order
 	// Taylor expansion of the FOV cone constraint stays valid. Enforced as a
@@ -136,6 +137,8 @@ public:
 	void setFovCamTilt(double tilt);
 	//Configure the FOV safety margin (linearized margin kept >= this)
 	void setFovMargin(double m);
+	//Configure the FOV cone ratio r/h = tan(horizontal_FOV / 2), eq.(7)
+	void setFovRh(double r_h);
 	//Configure the eq.(9) trust region (per-axis box half-widths) bounding how
 	//far the trajectory may sample from each FOV constraint's linearization point
 	//(pos in m, accel in m/s^2, yaw in rad)

@@ -478,6 +478,10 @@ void TrajBase::setFovMargin(double m){
 	fovMargin = m;
 }
 
+void TrajBase::setFovRh(double r_h){
+	fovRh = r_h;
+}
+
 void TrajBase::setFovTrustRegion(double pos, double acc, double yaw){
 	fovTrustPos = pos;
 	fovTrustAcc = acc;
@@ -573,7 +577,7 @@ bool TrajBase::genInEqFOV(double t_now, Eigen::Vector3d target, 	Eigen::Vector4d
 	// AND yaw; the old 6-variable version left yaw un-optimizable).
 	Eigen::MatrixXd const_conv =  Eigen::MatrixXd::Zero(7, coeffNum*dim);
 	//std::cout << " fov start " <<std::endl;
-        FOV_constraint fov(pose, accel, fovCamTilt);
+        FOV_constraint fov(pose, accel, fovCamTilt, fovRh);
         //std::cout << " start derovative fov " <<std::endl;
 	fov_constr constr = fov.derivative_FOV(target);
 	//Else we do the calcualtion to add the full inequality constriant
@@ -700,7 +704,7 @@ bool TrajBase::genInEqFOV(double t_now, Eigen::Vector3d target, 	Eigen::Vector4d
 }
 
 double TrajBase::checkFovAxisAngle(Eigen::Vector3d target, Eigen::Vector4d pose, Eigen::Vector3d accel){
-	FOV_constraint fov(pose, accel, fovCamTilt);
+	FOV_constraint fov(pose, accel, fovCamTilt, fovRh);
 	fov_zero_order e = fov.fov_eval(target);
 	Eigen::Vector3d nd = target - Eigen::Vector3d(pose[0], pose[1], pose[2]);
 	double nd_norm = nd.norm();

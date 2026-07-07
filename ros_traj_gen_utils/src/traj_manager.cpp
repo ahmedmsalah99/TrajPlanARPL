@@ -2,6 +2,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <iostream>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <traj_gen/trajectory/Waypoint.h>
 #include <traj_gen/trajectory/QPpolyTraj.h>
@@ -106,13 +107,35 @@ void init_params(){
 	//Camera/tag extrinsics (calibration); defaults reproduce the original values.
 	std::vector<double> cam_t = getParamOr<std::vector<double>>("cam_translation", std::vector<double>{0.3, 0.0, 0.0});
 	std::vector<double> tag_t = getParamOr<std::vector<double>>("tag_translation", std::vector<double>{0.0, 0.0, 0.0});
-	double cam_tilt = getParamOr<double>("cam_tilt", 0.25);
 	Eigen::Vector3d camTrans = (cam_t.size() >= 3) ? Eigen::Vector3d(cam_t[0], cam_t[1], cam_t[2]) : Eigen::Vector3d(0.3, 0.0, 0.0);
 	Eigen::Vector3d tagTrans = (tag_t.size() >= 3) ? Eigen::Vector3d(tag_t[0], tag_t[1], tag_t[2]) : Eigen::Vector3d(0.0, 0.0, 0.0);
-	// cam_tilt is the single camera-tilt knob (also used by the FOV optical axis).
-	// The apriltag extrinsic uses the opposite sign convention (documented rig
-	// rot2 = Rx(-tilt)), so negate it here.
-	aprilListen.setExtrinsics(camTrans, -cam_tilt, tagTrans);
+	// Full camera-frame -> body-frame rotation, composed from:
+	//  - body_r_cam: the fixed mount convention (row-major 3x3, e.g. a nadir-facing
+	//    camera whose axes don't line up 1:1 with the body's -- default identity).
+	//  - theta_from_nadir_deg: an additional tilt UP from nadir (deg), applied about
+	//    the body y-axis. theta_from_nadir=90 (default) means the tilt term is the
+	//    identity (no additional tilt beyond body_r_cam).
+	// This replaces the old single-axis cam_tilt-based rotation (which could only
+	// express a tilt about the camera's own x-axis with no base mount rotation at
+	// all); cam_tilt is now used only by the FOV optical-axis model (setFovCamTilt).
+	std::vector<double> body_r_cam_v = getParamOr<std::vector<double>>("body_r_cam",
+		std::vector<double>{1,0,0, 0,1,0, 0,0,1});
+	double theta_from_nadir_deg = getParamOr<double>("theta_from_nadir_deg", 90.0);
+	Eigen::Matrix3d body_R_cam = Eigen::Matrix3d::Identity();
+	if(body_r_cam_v.size() == 9){
+		for(int i = 0; i < 3; i++){
+			for(int j = 0; j < 3; j++){
+				body_R_cam(i,j) = body_r_cam_v[i*3+j];
+			}
+		}
+	}
+	double theta_from_hor = (90.0 - theta_from_nadir_deg) * (M_PI/180.0);
+	Eigen::Matrix3d Rtilt_y;
+	Rtilt_y << std::cos(theta_from_hor), 0.0, std::sin(theta_from_hor),
+	           0.0,                      1.0, 0.0,
+	           -std::sin(theta_from_hor),0.0, std::cos(theta_from_hor);
+	Eigen::Matrix3d camToBodyRot = Rtilt_y * body_R_cam;
+	aprilListen.setExtrinsics(camTrans, camToBodyRot, tagTrans);
 
 	vehicle_name = getParamOr<std::string>("device", std::string(""));
 	useVisual = getParamOr<bool>("visual", false);
@@ -307,9 +330,15 @@ int main(int argc, char** argv)
 		getParamOr<double>("perch_band_q", 0.5),
 		getParamOr<double>("perch_window", 0.5),
 		getParamOr<double>("perch_band_eps", 0.2));
-	//FOV camera mount tilt (rad) -- shared cam_tilt knob
+	//FOV optical-axis model's camera tilt (rad) -- NOT the same rotation as the
+	//apriltag extrinsics above (that's now body_r_cam/theta_from_nadir_deg); this
+	//is a separate, still-under-investigation knob specific to the FOV model.
 	qp_traj.setFovCamTilt(getParamOr<double>("cam_tilt", 0.25));
 	qp_traj.setFovMargin(getParamOr<double>("fov_margin", 0.0));
+	//FOV cone ratio r/h = tan(horizontal_FOV / 2), eq.(7). Configure via the
+	//camera's actual horizontal field of view (rad); default reproduces the
+	//previous hard-coded r_h=0.76732 for cameras that don't set this.
+	qp_traj.setFovRh(std::tan(getParamOr<double>("fov_horizontal_fov", 2.0*std::atan(0.76732)) / 2.0));
 	//eq.(9) trust region: bounds how far the trajectory may sample from each
 	//FOV row's linearization point, so the Taylor expansion stays valid.
 	qp_traj.setFovTrustRegion(

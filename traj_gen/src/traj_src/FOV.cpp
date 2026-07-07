@@ -2,10 +2,11 @@
 #include <math.h>
 using namespace std;
 
-FOV_constraint::FOV_constraint(Eigen::Vector4d pos, Eigen::Vector3d acc, double tilt){
+FOV_constraint::FOV_constraint(Eigen::Vector4d pos, Eigen::Vector3d acc, double tilt, double rh){
 	init_pos = pos;
 	init_acc = acc;
 	camTilt = tilt;
+	r_h = rh;
 }
 
 // Decompose the target direction relative to the camera optical axis, for a given
