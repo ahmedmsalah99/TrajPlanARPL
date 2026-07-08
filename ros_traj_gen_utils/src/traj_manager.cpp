@@ -17,6 +17,8 @@
 #include <trackers_msgs/srv/transition.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
+#include <tf2_ros/static_transform_broadcaster.h>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 
 using namespace std;
 using namespace std::chrono_literals;
@@ -36,6 +38,14 @@ rclcpp::Client<trackers_msgs::srv::Transition>::SharedPtr srv_transition_;
 rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr hover_;
 rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr subOdomMsg;
 rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr subApril;
+// world -> odom: a fixed correction published once, from the FIRST
+// /fmu/out/vehicle_odometry reading received (i.e. wherever the vehicle is
+// when this node starts listening -- effectively home/launch). Without this,
+// nothing relates the planner's "odom"-referenced trajectory to a "world"
+// frame at all, which is what made RViz (referenced to "world"/ground) show
+// the trajectory offset by exactly the vehicle's starting height/position.
+std::shared_ptr<tf2_ros::StaticTransformBroadcaster> worldOdomTfBroadcaster;
+bool worldOdomTfPublished = false;
 
 odom_utils odomListiner;
 static const std::string line_tracker_min_jerk("std_trackers/LineTrackerMinJerkAction");
@@ -104,6 +114,7 @@ nav_msgs::msg::Odometry vehicleOdometryToRosOdometry(
 void init_params(){
 	listener.setNode(node);
 	aprilListen.setNode(node);
+	worldOdomTfBroadcaster = std::make_shared<tf2_ros::StaticTransformBroadcaster>(node);
 	auto best_effort_qos = rclcpp::QoS(1).best_effort();
 	//Camera/tag extrinsics (calibration); defaults reproduce the original values.
 	std::vector<double> cam_t = getParamOr<std::vector<double>>("cam_translation", std::vector<double>{0.3, 0.0, 0.0});
@@ -177,6 +188,21 @@ void init_params(){
 		[](const px4_msgs::msg::VehicleOdometry &msg){
 			nav_msgs::msg::Odometry odom =
         	vehicleOdometryToRosOdometry(msg);
+
+			if(!worldOdomTfPublished){
+				// world's origin = wherever the vehicle is on this first
+				// reading (translation only; no rotation correction).
+				geometry_msgs::msg::TransformStamped t;
+				t.header.stamp = node->now();
+				t.header.frame_id = "world";
+				t.child_frame_id = "odom";
+				t.transform.translation.x = -odom.pose.pose.position.x;
+				t.transform.translation.y = -odom.pose.pose.position.y;
+				t.transform.translation.z = -odom.pose.pose.position.z;
+				t.transform.rotation.w = 1.0;
+				worldOdomTfBroadcaster->sendTransform(t);
+				worldOdomTfPublished = true;
+			}
 
 			odomListiner.outputListiner(odom);
 			aprilListen.updateOdom(odom);
