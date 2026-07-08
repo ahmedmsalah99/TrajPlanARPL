@@ -93,7 +93,7 @@ class OffboardBridge(Node):
 
         path = Path()
         path.header.stamp = self.get_clock().now().to_msg()
-        path.header.frame_id = 'odom'
+        path.header.frame_id = 'world'
         ps = PoseStamped()
         path.poses.append(ps)
         self.wp_pub.publish(path)

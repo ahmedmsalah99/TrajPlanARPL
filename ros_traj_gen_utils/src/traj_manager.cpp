@@ -196,9 +196,9 @@ void init_params(){
 				t.header.stamp = node->now();
 				t.header.frame_id = "world";
 				t.child_frame_id = "odom";
-				t.transform.translation.x = -odom.pose.pose.position.x;
-				t.transform.translation.y = -odom.pose.pose.position.y;
-				t.transform.translation.z = -odom.pose.pose.position.z;
+				t.transform.translation.x = odom.pose.pose.position.x;
+				t.transform.translation.y = odom.pose.pose.position.y;
+				t.transform.translation.z = odom.pose.pose.position.z;
 				t.transform.rotation.w = 1.0;
 				worldOdomTfBroadcaster->sendTransform(t);
 			}
