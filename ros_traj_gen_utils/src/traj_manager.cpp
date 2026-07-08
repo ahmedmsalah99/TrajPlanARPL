@@ -104,6 +104,7 @@ nav_msgs::msg::Odometry vehicleOdometryToRosOdometry(
 void init_params(){
 	listener.setNode(node);
 	aprilListen.setNode(node);
+	auto best_effort_qos = rclcpp::QoS(1).best_effort();
 	//Camera/tag extrinsics (calibration); defaults reproduce the original values.
 	std::vector<double> cam_t = getParamOr<std::vector<double>>("cam_translation", std::vector<double>{0.3, 0.0, 0.0});
 	std::vector<double> tag_t = getParamOr<std::vector<double>>("tag_translation", std::vector<double>{0.0, 0.0, 0.0});
@@ -146,7 +147,7 @@ void init_params(){
 	visual_vel_pub_ = node->create_publisher<nav_msgs::msg::Path>("/"+vehicle_name+"/trackers_manager/qp_tracker/qp_trajectory_vel", 10);
 	visual_acc_pub_ = node->create_publisher<nav_msgs::msg::Path>("/"+vehicle_name+"/trackers_manager/qp_tracker/qp_trajectory_acc", 10);
 	subApril = node->create_subscription<geometry_msgs::msg::PoseStamped>(
-		"/tags_features_extractor/tag_pose", 10,
+		"/tags_features_extractor/tag_pose", best_effort_qos,
 		[](const geometry_msgs::msg::PoseStamped &msg){ aprilListen.aprilListen(msg); });
 
 	subWaypoint = node->create_subscription<nav_msgs::msg::Path>(
@@ -170,7 +171,7 @@ void init_params(){
 		std::cout << " WE ARE USING A TARGET " << target <<std::endl;
 	}
 	std::string odom_topic = "/fmu/out/vehicle_odometry";
-	auto best_effort_qos = rclcpp::QoS(1).best_effort();
+	
 	subOdomMsg = node->create_subscription<px4_msgs::msg::VehicleOdometry>(
 		odom_topic, best_effort_qos,
 		[](const px4_msgs::msg::VehicleOdometry &msg){

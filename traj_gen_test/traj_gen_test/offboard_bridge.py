@@ -22,6 +22,8 @@ convention, so all fields are copied straight across with no axis remapping.
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from nav_msgs.msg import Path
+from geometry_msgs.msg import PoseStamped
 
 from quadrotor_msgs.msg import PositionCommand
 from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint
@@ -53,9 +55,10 @@ class OffboardBridge(Node):
                               history=HistoryPolicy.KEEP_LAST)
 
         self.offboard_pub = self.create_publisher(
-            OffboardControlMode, '/fmu/in/offboard_control_mode', px4_qos)
+            OffboardControlMode, '/fmu/in/offboard_control_mode', 10)
         self.setpoint_pub = self.create_publisher(
-            TrajectorySetpoint, '/fmu/in/trajectory_setpoint', px4_qos)
+            TrajectorySetpoint, '/fmu/in/trajectory_setpoint', 10)
+        self.wp_pub = self.create_publisher(Path, device + '/waypoints', 10)
 
         self.cmd_sub = self.create_subscription(
             PositionCommand, device + '/position_cmd', self._on_position_cmd, 10)
@@ -87,6 +90,14 @@ class OffboardBridge(Node):
         msg.attitude = False
         msg.body_rate = False
         self.offboard_pub.publish(msg)
+
+        path = Path()
+        path.header.stamp = self.get_clock().now().to_msg()
+        path.header.frame_id = 'odom'
+        ps = PoseStamped()
+        path.poses.append(ps)
+        self.wp_pub.publish(path)
+
 
     def _check_stale(self):
         if self._last_cmd_time is None:
