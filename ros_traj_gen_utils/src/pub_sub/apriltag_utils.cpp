@@ -73,9 +73,14 @@ void apriltag_utils::updateOdom(const nav_msgs::msg::Odometry &msg){
 
 //Takes the apriltage detection message and stores it in a perch_constraint  format
 void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseStamped &msg){
-	
-	//if buffer isn't full return 
+
+	std::cout << "[APRILDIAG] aprilListen called, tag stamp="
+	          << rclcpp::Time(msg.header.stamp).seconds() << std::endl;
+
+	//if buffer isn't full return
 	if ((circle_start+1)!=circle_end){
+		std::cout << "[APRILDIAG] DROP: odom buffer not full yet (circle_start="
+		          << circle_start << ", circle_end=" << circle_end << ")" << std::endl;
 		return;
 	}
 	//Check if the Odom is being read
@@ -85,6 +90,12 @@ void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseStamped &msg){
 	if(index <0){
 		index+=BUFFER_SIZE;
 	}
+	double oldest = rclcpp::Time(odom_buffer[circle_end].header.stamp).seconds();
+	int newest_idx = (circle_start - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+	double newest = rclcpp::Time(odom_buffer[newest_idx].header.stamp).seconds();
+	std::cout << "[APRILDIAG] odom buffer covers [" << oldest << ", " << newest
+	          << "] (span=" << (newest - oldest) << "s), tag_read=" << tag_read
+	          << " (tag_read - newest=" << (tag_read - newest) << ")" << std::endl;
 	if(tag_read > rclcpp::Time(odom_buffer[index].header.stamp).seconds()){
 		while(tag_read > rclcpp::Time(odom_buffer[index].header.stamp).seconds()){
 			//std::cout << tag_read - odom_buffer[index].header.stamp.toSec() <<std::endl;
@@ -94,6 +105,8 @@ void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseStamped &msg){
 				//std::cout << "Buffer failed 1" <<std::endl;
 				// return;
 				index = (circle_start - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+				std::cout << "[APRILDIAG] tag newer than whole buffer, "
+				          << "clamped to newest sample" << std::endl;
         		break;
 			}
 		}
@@ -106,12 +119,15 @@ void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseStamped &msg){
 			}
 			if(index == circle_end){
 				//flag =0;
-				//std::cout << "Buffer failed 2" <<std::endl;
+				std::cout << "[APRILDIAG] DROP: tag older than whole buffer "
+				          << "(tag_read - oldest=" << (tag_read - oldest) << "s)" << std::endl;
 				return;
 			}
 		}
 	}
-	//std::cout << "Buffer SUccess" <<std::endl;
+	std::cout << "[APRILDIAG] SUCCESS: synced tag to odom_buffer[" << index << "], "
+	          << "|dt|=" << (tag_read - rclcpp::Time(odom_buffer[index].header.stamp).seconds())
+	          << "s" << std::endl;
 	current_heading = odom_buffer[index];
 	current_target = msg;
 	flag = 1;
