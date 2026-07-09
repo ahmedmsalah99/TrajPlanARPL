@@ -203,7 +203,7 @@ void init_params(){
 				worldOdomTfBroadcaster->sendTransform(t);
 			}
 
-			odomListiner.outputListiner(odom);
+			odomListiner.outputListiner(odom, node);
 			aprilListen.updateOdom(odom);
 			});
 	subMap = node->create_subscription<ros_traj_gen_utils::msg::CuboidMap>(

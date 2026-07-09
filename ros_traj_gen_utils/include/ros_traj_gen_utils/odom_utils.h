@@ -11,7 +11,7 @@ bool read = false;
 nav_msgs::msg::Odometry current_heading;
 
 public:
-void outputListiner(const nav_msgs::msg::Odometry &msg);
+void outputListiner(const nav_msgs::msg::Odometry &msg, const rclcpp::Node::SharedPtr );
 bool enable_write = true;
 bool enable_time_samp = false;
 double now;

@@ -68,7 +68,7 @@ void apriltag_utils::timerCallback()
 void apriltag_utils::updateOdom(const nav_msgs::msg::Odometry &msg){
 	// Store the latest odometry; the startup timer samples it into the circular
 	// buffer. Fed from the main odom callback (no dedicated subscription needed).
-	odom_l.outputListiner(msg);
+	odom_l.outputListiner(msg, node_);
 }
 
 //Takes the apriltage detection message and stores it in a perch_constraint  format

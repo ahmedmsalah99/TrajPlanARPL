@@ -1,7 +1,7 @@
 #include <ros_traj_gen_utils/odom_utils.h>
 using namespace std;
 
-void odom_utils::outputListiner(const nav_msgs::msg::Odometry &msg){
+void odom_utils::outputListiner(const nav_msgs::msg::Odometry &msg, const rclcpp::Node::SharedPtr node_){
 	//std::cout << rclcpp::Clock().now().seconds() <<std::endl;
 	if(enable_write){
 		//Lock the read to be at now and not before
@@ -13,6 +13,7 @@ void odom_utils::outputListiner(const nav_msgs::msg::Odometry &msg){
 			}
 		}
 		current_heading = msg;
+		current_heading.header.stamp = node_->now();
 		read = true;
 	}
 }
