@@ -38,6 +38,15 @@ traj_exe:
     # Minimum altitude enforced across the whole trajectory (NED: upper bound on z)
     min_altitude_enable: false  # add the min-altitude inequality to every segment
     min_altitude: 0.0           # metres above the world origin
+    # Horizontal (x,y) vel/accel/jerk limits, sampled across every segment's
+    # interior (not just at waypoints/endpoints). Enforced as an axis-aligned
+    # box on vx/vy (resp. ax/ay, jx/jy) independently -- not a true circular
+    # horizontal-speed limit (the QP here has no SOCP support); a square box
+    # permits a diagonal magnitude up to limit*sqrt(2). Each <= 0 disables
+    # that derivative order's limit.
+    horiz_vel_limit: 0.0        # m/s, |vx|,|vy| <= this (0 = disabled)
+    horiz_accel_limit: 0.0      # m/s^2, |ax|,|ay| <= this (0 = disabled)
+    horiz_jerk_limit: 0.0       # m/s^3, |jx|,|jy| <= this (0 = disabled)
     # Camera / tag extrinsics (used in visual perching)
     cam_translation: [0.12, -0.00, -0.002]   # camera position offset in the body frame (m), FRD
     # cam_tilt is ONLY used by the FOV optical-axis model now (still under

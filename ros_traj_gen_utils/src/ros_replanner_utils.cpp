@@ -66,6 +66,7 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 	// applyMinAltitude uses each segment's exact duration as its constraint
 	// window, so it must run after segmentTimes is populated.
 	trajectory->applyMinAltitude();
+	trajectory->applyHorizontalLimits();
 	segmentTimes = trajectory->segmentTimes;
 
 	//segmentTimes[0] += 0.6;
@@ -130,6 +131,7 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 	// applyMinAltitude uses each segment's exact duration as its constraint
 	// window, so it must run after segmentTimes is populated.
 	trajectory->applyMinAltitude();
+	trajectory->applyHorizontalLimits();
 	segmentTimes = trajectory->segmentTimes;
 	int count = 0;
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
@@ -336,6 +338,7 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		trajectory->segmentTimes.push_back(segmentTimes[i]);
 	}
 	trajectory->applyMinAltitude();
+	trajectory->applyHorizontalLimits();
 	if(fullStop ==1){
 		trajectory->setFullStop();
 	}

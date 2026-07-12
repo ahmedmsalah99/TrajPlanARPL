@@ -556,6 +556,59 @@ void TrajBase::applyMinAltitude(){
 	          << (vertices.size() - 1) << " segment(s)" << std::endl;
 }
 
+void TrajBase::setHorizontalLimits(double velLimit, double accelLimit, double jerkLimit){
+	horizVelLimit = velLimit;
+	horizAccelLimit = accelLimit;
+	horizJerkLimit = jerkLimit;
+}
+
+void TrajBase::applyHorizontalLimits(){
+	if(horizVelLimit <= 0.0 && horizAccelLimit <= 0.0 && horizJerkLimit <= 0.0){
+		return;
+	}
+	// Same requirement/rationale as applyMinAltitude(): the window below is
+	// sized from each segment's real duration.
+	if(segmentTimes.size() != vertices.size() - 1){
+		std::cout << "[HORIZ_LIMIT] SKIPPED: segmentTimes not sized to vertices yet"
+		          << " (segmentTimes=" << segmentTimes.size()
+		          << " vertices=" << vertices.size()
+		          << ") -- call after segment times are set for this plan"
+		          << std::endl;
+		return;
+	}
+
+	const double kUnbounded = 100.0; // see applyMinAltitude() for rationale
+	// Same interior-only sampling window as applyMinAltitude(): excludes both
+	// segment endpoints, which may carry their own equality constraints (e.g.
+	// the live start vertex's velocity/acceleration from odom) that this box
+	// could otherwise conflict with and make the QP infeasible on every solve.
+	const double kSampleDt = 0.01; // must match genInEqConstraint's dt
+
+	auto pushBox = [&](size_t i, int derivOrder, double limit, double window){
+		waypoint_ineq_const c;
+		c.derivOrder = derivOrder;
+		c.timeOffset = window;
+		c.lower = Eigen::Vector4d::Constant(-kUnbounded);
+		c.upper = Eigen::Vector4d::Constant(kUnbounded);
+		c.lower(0) = -limit; c.upper(0) = limit; // x
+		c.lower(1) = -limit; c.upper(1) = limit; // y
+		c.InEqDim = Eigen::Vector4d::Zero();
+		c.InEqDim(0) = 1; c.InEqDim(1) = 1;
+		vertices[i].addInEqualityConstraint(c);
+	};
+
+	for(size_t i = 1; i < vertices.size(); i++){
+		double window = std::max(0.0, segmentTimes[i-1] - kSampleDt);
+		if(horizVelLimit > 0.0){ pushBox(i, 1, horizVelLimit, window); }
+		if(horizAccelLimit > 0.0){ pushBox(i, 2, horizAccelLimit, window); }
+		if(horizJerkLimit > 0.0){ pushBox(i, 3, horizJerkLimit, window); }
+	}
+	std::cout << "[HORIZ_LIMIT] applied: |vx|,|vy|<=" << horizVelLimit
+	          << " |ax|,|ay|<=" << horizAccelLimit
+	          << " |jx|,|jy|<=" << horizJerkLimit
+	          << " across " << (vertices.size() - 1) << " segment(s)" << std::endl;
+}
+
 /*Virtual Stubs*/
 
 

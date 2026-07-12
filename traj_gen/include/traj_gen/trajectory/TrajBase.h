@@ -70,6 +70,18 @@ protected:
 	// segment of the trajectory (NED: altitude above the origin = -z).
 	bool minAltitudeEnabled = false;
 	double minAltitude = 0.0;         // metres above the world origin
+	// Horizontal (x,y) dynamic limits, sampled across every segment's interior
+	// (not just at waypoints/endpoints) -- see applyHorizontalLimits(). Each is
+	// independently optional: a value <= 0 disables that derivative order's
+	// limit, matching limits[]'s existing "0 = unset" convention. Enforced as an
+	// axis-aligned box on vx/vy (resp. ax/ay, jx/jy) independently, NOT a true
+	// circular horizontal-magnitude limit -- this codebase's QP only supports
+	// linear d <= Cx <= f constraints (no SOCP), same tradeoff as the FOV eq.(9)
+	// trust region. A square box permits a diagonal magnitude up to limit*sqrt(2);
+	// halve the configured value if you need a strict circular guarantee instead.
+	double horizVelLimit = 0.0;       // m/s, |vx|,|vy| <= this
+	double horizAccelLimit = 0.0;     // m/s^2, |ax|,|ay| <= this
+	double horizJerkLimit = 0.0;      // m/s^3, |jx|,|jy| <= this
 	bool constrainV = true;
 	float duration = 0.1;
 
@@ -153,6 +165,16 @@ public:
 	//it uses each segment's exact duration as the constraint window. No-op if
 	//the constraint is disabled or segmentTimes isn't sized to vertices yet.
 	void applyMinAltitude();
+	//Configure the horizontal (x,y) velocity/acceleration/jerk limits. Each
+	//value <= 0 disables that derivative order's limit.
+	void setHorizontalLimits(double velLimit, double accelLimit, double jerkLimit);
+	//Push the horizontal vel/accel/jerk inequalities onto every vertex (1..end)
+	//of the CURRENT vertex list, sampling each segment's interior at dt so the
+	//limit is enforced all along the trajectory, not just at waypoints. Same
+	//calling convention/caveats as applyMinAltitude(): call after segmentTimes
+	//is set for this plan; no-op if all three limits are disabled or
+	//segmentTimes isn't sized to vertices yet.
+	void applyHorizontalLimits();
 
 	//Set Constraints
 	//pushes a waypoint into the list
