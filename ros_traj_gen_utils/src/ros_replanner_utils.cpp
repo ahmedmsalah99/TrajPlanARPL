@@ -57,7 +57,11 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 		trajectory->setFullStop();
 	}
 	else{
-		trajectory->calcPerchCond(prevTarget);
+		if(!trajectory->calcPerchCond(prevTarget)){
+			std::cout << " could not plan flight: perch terminal condition exceeds "
+			          << "the configured horizontal limits" << std::endl;
+			return false;
+		}
 	}
 
 	//set Time
@@ -122,7 +126,11 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 		trajectory->push_back(future_v[i]);
 	}
         //std::cout << "last point added" <<std::endl;
-	trajectory->calcPerchCond(target);
+	if(!trajectory->calcPerchCond(target)){
+		std::cout << " could not plan flight: perch terminal condition exceeds "
+		          << "the configured horizontal limits" << std::endl;
+		return false;
+	}
 	prevTarget = target;
 	fullStop=0;
 	//set Time
@@ -344,7 +352,16 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	}
 	else{
 		std::cout << " TARGET " << Target <<std::endl;
-		trajectory->calcPerchCond(Target);
+		if(!trajectory->calcPerchCond(Target)){
+			//revert to previous trajectory, same as the retry-exhaustion path below
+			trajectory->overideSolve();
+			trajectory->vertices = vertices_prev;
+			trajectory->coeffSolved = coeffSolved_prev;
+			trajectory->segmentTimes =  segmentTimes_prev;
+			std::cout << " could not plan flight: perch terminal condition exceeds "
+			          << "the configured horizontal limits" << std::endl;
+			return false;
+		}
 	}
 
 	//SOLVE THE BASE PROBLEM FIRST -- NO JOINT CONSTRAINTS (FOV etc.) YET.

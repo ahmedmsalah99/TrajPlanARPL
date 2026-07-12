@@ -40,9 +40,9 @@ traj_exe:
     # Horizontal (x,y) vel/accel/jerk limits, sampled across every segment's
     # interior (not just at waypoints/endpoints). Each <= 0 disables that
     # derivative order's limit. See perch_config.yaml for the full explanation.
-    horiz_vel_limit: 0.0        # m/s, |vx|,|vy| <= this (0 = disabled)
-    horiz_accel_limit: 0.0      # m/s^2, |ax|,|ay| <= this (0 = disabled)
-    horiz_jerk_limit: 0.0       # m/s^3, |jx|,|jy| <= this (0 = disabled)
+    horiz_vel_limit: 0.0        # m/s, sqrt(vx^2+vy^2) <= this (0 = disabled)
+    horiz_accel_limit: 0.0      # m/s^2, sqrt(ax^2+ay^2) <= this (0 = disabled)
+    horiz_jerk_limit: 0.0       # m/s^3, sqrt(jx^2+jy^2) <= this (0 = disabled)
     # Camera / tag extrinsics (used in visual perching)
     cam_translation: [0.3, 0.0, 0.0]   # camera position offset in the body frame (m)
     # cam_tilt is ONLY used by the FOV optical-axis model now (still under
