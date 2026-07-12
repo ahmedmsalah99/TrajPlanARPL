@@ -334,7 +334,7 @@ void TrajBase::overideSolve(){
 }
 
 //Given a Homogenous Transform and a forward Velocity how to convert to this system
-void TrajBase::calcPerchCond(Eigen::Matrix4d H){
+bool TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	int numPoint = vertices.size();
 
 	// Surface normal s3 (outward), in the world frame = 3rd column of the target
@@ -379,7 +379,6 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 		impVel(3) = 0.0; // yaw rate
 	}
 	// else: too flat -> soft landing (zero impact velocity)
-	vertices[numPoint-1].setVel(impVel);
 
 	// Terminal acceleration so that b3 = s3 at contact (eq. 12): xdd = force*s3 - g*e3.
 	// Written via e3 so it follows the frame's up-vector (in NED this adds +g on z).
@@ -391,10 +390,36 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	std::cout << "final acceleration " << finalAccel[1] << std::endl;
 	std::cout << "final acceleration " << finalAccel[2] << std::endl;
 	std::cout << "final acceleration " << finalAccel << std::endl;
+
+	// Reject up front if the perch physics (fixed by the target geometry and
+	// maxInclinationAccel/impactNormalVel/impactSlideVel) demand more horizontal
+	// acceleration or impact velocity than the configured horizontal limits
+	// allow, instead of pushing constraints that fight each other and letting
+	// the QP fail on the final segment. Checked against the true (circular)
+	// limit, not the internal per-axis inscribed-square box -- this is a
+	// physical requirement check, not the box's own conservative bound.
+	double finalAccelHoriz = sqrt(finalAccel[0]*finalAccel[0] + finalAccel[1]*finalAccel[1]);
+	double impVelHoriz = sqrt(impVel(0)*impVel(0) + impVel(1)*impVel(1));
+	if(horizAccelLimit > 0.0 && finalAccelHoriz > horizAccelLimit){
+		std::cout << "[HORIZ_LIMIT] REJECTED plan: perch terminal horizontal acceleration ("
+		          << finalAccelHoriz << " m/s^2) exceeds horiz_accel_limit ("
+		          << horizAccelLimit << " m/s^2). Raise horiz_accel_limit, lower "
+		          << "max_inclination_accel, or use a less steep target." << std::endl;
+		return false;
+	}
+	if(horizVelLimit > 0.0 && impVelHoriz > horizVelLimit){
+		std::cout << "[HORIZ_LIMIT] REJECTED plan: perch impact horizontal velocity ("
+		          << impVelHoriz << " m/s) exceeds horiz_vel_limit ("
+		          << horizVelLimit << " m/s). Raise horiz_vel_limit or lower "
+		          << "impact_normal_vel/impact_slide_vel." << std::endl;
+		return false;
+	}
+
+	vertices[numPoint-1].setVel(impVel);
 	vertices[numPoint-1].setAccel(finalAccel);
 	//vertices[numPoint-1].setJerk(Eigen::VectorXd::Zero(4));
 	//vertices[numPoint-1].setSnap(Eigen::VectorXd::Zero(4));
-		
+
 	waypoint_ineq_const ineq_const_a;
 	Eigen::Vector4d numIneqCon = Eigen::VectorXd::Zero(4);
     std::cout << "done acceleartion " <<std::endl;
@@ -445,16 +470,17 @@ void TrajBase::calcPerchCond(Eigen::Matrix4d H){
 		//vertices[numPoint-1].ineq_constraint.push_back(ineq_const_v);
 	//}
       //  std::cout << " push constraint done" <<std::endl;
-	//set no velocity if our pitch angle is low 
+	//set no velocity if our pitch angle is low
+	return true;
 }
 
 //Simple calculation for X aligned perching
-void TrajBase::calcPerchCond(double pitch){
+bool TrajBase::calcPerchCond(double pitch){
 	Eigen::Matrix4d H;
 	H(0,2) = -1*sin(pitch);
 	H(1,2) = 0;
 	H(2,2) = cos(pitch);
-	calcPerchCond(H);
+	return calcPerchCond(H);
 }
 
 void TrajBase::setPerchParams(double maxInclAccel, double normalVel, double slideVel, double minIncl){
@@ -554,6 +580,64 @@ void TrajBase::applyMinAltitude(){
 	std::cout << "[MIN_ALTITUDE] applied: minAlt=" << minAltitude
 	          << " (z <= " << -minAltitude << ") across "
 	          << (vertices.size() - 1) << " segment(s)" << std::endl;
+}
+
+void TrajBase::setHorizontalLimits(double velLimit, double accelLimit, double jerkLimit){
+	horizVelLimit = velLimit;
+	horizAccelLimit = accelLimit;
+	horizJerkLimit = jerkLimit;
+}
+
+void TrajBase::applyHorizontalLimits(){
+	if(horizVelLimit <= 0.0 && horizAccelLimit <= 0.0 && horizJerkLimit <= 0.0){
+		return;
+	}
+	// Same requirement/rationale as applyMinAltitude(): the window below is
+	// sized from each segment's real duration.
+	if(segmentTimes.size() != vertices.size() - 1){
+		std::cout << "[HORIZ_LIMIT] SKIPPED: segmentTimes not sized to vertices yet"
+		          << " (segmentTimes=" << segmentTimes.size()
+		          << " vertices=" << vertices.size()
+		          << ") -- call after segment times are set for this plan"
+		          << std::endl;
+		return;
+	}
+
+	const double kUnbounded = 100.0; // see applyMinAltitude() for rationale
+	// Same interior-only sampling window as applyMinAltitude(): excludes both
+	// segment endpoints, which may carry their own equality constraints (e.g.
+	// the live start vertex's velocity/acceleration from odom) that this box
+	// could otherwise conflict with and make the QP infeasible on every solve.
+	const double kSampleDt = 0.01; // must match genInEqConstraint's dt
+	// Inscribed square: |vx|,|vy| <= limit/sqrt(2) guarantees the true
+	// horizontal magnitude sqrt(vx^2+vy^2) never exceeds the configured limit
+	// (equality only at the box's corners); see the member comments above.
+	const double kInscribedSquareScale = 1.0 / sqrt(2.0);
+
+	auto pushBox = [&](size_t i, int derivOrder, double limit, double window){
+		double boxLimit = limit * kInscribedSquareScale;
+		waypoint_ineq_const c;
+		c.derivOrder = derivOrder;
+		c.timeOffset = window;
+		c.lower = Eigen::Vector4d::Constant(-kUnbounded);
+		c.upper = Eigen::Vector4d::Constant(kUnbounded);
+		c.lower(0) = -boxLimit; c.upper(0) = boxLimit; // x
+		c.lower(1) = -boxLimit; c.upper(1) = boxLimit; // y
+		c.InEqDim = Eigen::Vector4d::Zero();
+		c.InEqDim(0) = 1; c.InEqDim(1) = 1;
+		vertices[i].addInEqualityConstraint(c);
+	};
+
+	for(size_t i = 1; i < vertices.size(); i++){
+		double window = std::max(0.0, segmentTimes[i-1] - kSampleDt);
+		if(horizVelLimit > 0.0){ pushBox(i, 1, horizVelLimit, window); }
+		if(horizAccelLimit > 0.0){ pushBox(i, 2, horizAccelLimit, window); }
+		if(horizJerkLimit > 0.0){ pushBox(i, 3, horizJerkLimit, window); }
+	}
+	std::cout << "[HORIZ_LIMIT] applied: sqrt(vx^2+vy^2)<=" << horizVelLimit
+	          << " sqrt(ax^2+ay^2)<=" << horizAccelLimit
+	          << " sqrt(jx^2+jy^2)<=" << horizJerkLimit
+	          << " across " << (vertices.size() - 1) << " segment(s)" << std::endl;
 }
 
 /*Virtual Stubs*/

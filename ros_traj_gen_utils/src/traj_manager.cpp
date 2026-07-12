@@ -376,6 +376,13 @@ int main(int argc, char** argv)
 	qp_traj.setMinAltitude(
 		getParamOr<bool>("min_altitude_enable", false),
 		getParamOr<double>("min_altitude", 0.3));
+	//Horizontal (x,y) vel/accel/jerk limits, sampled across every segment's
+	//interior (not just at waypoints). Each is independently optional: <= 0
+	//(the default) disables that derivative order's limit.
+	qp_traj.setHorizontalLimits(
+		getParamOr<double>("horiz_vel_limit", 0.0),
+		getParamOr<double>("horiz_accel_limit", 0.0),
+		getParamOr<double>("horiz_jerk_limit", 0.0));
 	//These values of 5 means that for a 1.7m distance gives around 5/3.4 or 1.5 ish time allocated.
 	TrajBase * traj;
 	double dt =0.01; //Handles the timer speed

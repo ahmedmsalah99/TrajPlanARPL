@@ -70,6 +70,19 @@ protected:
 	// segment of the trajectory (NED: altitude above the origin = -z).
 	bool minAltitudeEnabled = false;
 	double minAltitude = 0.0;         // metres above the world origin
+	// Horizontal (x,y) dynamic limits, sampled across every segment's interior
+	// (not just at waypoints/endpoints) -- see applyHorizontalLimits(). Each
+	// value is the true horizontal magnitude limit (sqrt(vx^2+vy^2) <= this,
+	// resp. accel/jerk); a value <= 0 disables that derivative order's limit,
+	// matching limits[]'s existing "0 = unset" convention. Enforced via an
+	// INSCRIBED SQUARE (|vx|,|vy| <= limit/sqrt(2)) since this codebase's QP
+	// only supports linear d <= Cx <= f constraints (no SOCP) -- this
+	// guarantees the true horizontal magnitude never exceeds the configured
+	// limit, at the cost of under-using the limit on pure-axis motion (a move
+	// along x alone tops out at limit/sqrt(2), not limit).
+	double horizVelLimit = 0.0;       // m/s, sqrt(vx^2+vy^2) <= this
+	double horizAccelLimit = 0.0;     // m/s^2, sqrt(ax^2+ay^2) <= this
+	double horizJerkLimit = 0.0;      // m/s^3, sqrt(jx^2+jy^2) <= this
 	bool constrainV = true;
 	float duration = 0.1;
 
@@ -117,9 +130,14 @@ public:
 	//Quadrotor Specific
 	//Automatically calculates the landing envelope inequality constraints for the last points.
 	//The Forward Velocity refers to how fast much momentum you wish to apply to landing.
-	//Gripper dependent 
+	//Gripper dependent
 	//Can either use rotation matrix or declare a pitch
-	void calcPerchCond(double pitch);
+	//Returns false (and pushes no constraints) if the perch terminal condition's
+	//required horizontal acceleration/impact velocity exceeds the configured
+	//horizontal limits (setHorizontalLimits) -- i.e. perching here is physically
+	//incompatible with the configured cruise limits, so the caller should not
+	//generate this plan at all rather than solve a QP that fights itself.
+	bool calcPerchCond(double pitch);
 	//t_now is the ABSOLUTE time (from the start of the current solve's segment 0)
 	//that `pose`/`accel` were sampled at; used to locate which segment/local-time
 	//the returned constraint's basis rows should be expressed at.
@@ -128,7 +146,8 @@ public:
 	//(built from pose/accel/yaw + fovCamTilt, same as genInEqFOV) and the true
 	//direction from pose to target. 0 = camera looks straight at the target.
 	double checkFovAxisAngle(Eigen::Vector3d target, Eigen::Vector4d pose, Eigen::Vector3d accel);
-	void calcPerchCond(Eigen::Matrix4d Rot);
+	//See the calcPerchCond(double) overload above for the return value's meaning.
+	bool calcPerchCond(Eigen::Matrix4d Rot);
 	//Configure perching parameters (maxInclinationAccel, vS1 into-surface, vS3 along-surface, min inclination rad)
 	void setPerchParams(double maxInclAccel, double normalVel, double slideVel, double minIncl);
 	//Configure the eq.(14) approach band (q tolerance, window t_k in s, eps slack)
@@ -153,6 +172,16 @@ public:
 	//it uses each segment's exact duration as the constraint window. No-op if
 	//the constraint is disabled or segmentTimes isn't sized to vertices yet.
 	void applyMinAltitude();
+	//Configure the horizontal (x,y) velocity/acceleration/jerk limits. Each
+	//value <= 0 disables that derivative order's limit.
+	void setHorizontalLimits(double velLimit, double accelLimit, double jerkLimit);
+	//Push the horizontal vel/accel/jerk inequalities onto every vertex (1..end)
+	//of the CURRENT vertex list, sampling each segment's interior at dt so the
+	//limit is enforced all along the trajectory, not just at waypoints. Same
+	//calling convention/caveats as applyMinAltitude(): call after segmentTimes
+	//is set for this plan; no-op if all three limits are disabled or
+	//segmentTimes isn't sized to vertices yet.
+	void applyHorizontalLimits();
 
 	//Set Constraints
 	//pushes a waypoint into the list
