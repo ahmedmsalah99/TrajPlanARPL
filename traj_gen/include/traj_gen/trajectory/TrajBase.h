@@ -83,6 +83,18 @@ protected:
 	double horizVelLimit = 0.0;       // m/s, sqrt(vx^2+vy^2) <= this
 	double horizAccelLimit = 0.0;     // m/s^2, sqrt(ax^2+ay^2) <= this
 	double horizJerkLimit = 0.0;      // m/s^3, sqrt(jx^2+jy^2) <= this
+	// Sampling step for every per-vertex sampled inequality (genInEqConstraint):
+	// the perch eq.(14) band, applyMinAltitude, and applyHorizontalLimits all
+	// walk their window at this resolution. A single segment only has
+	// polyOrder coefficients (e.g. 10) per dimension, but sampling at the old
+	// hardcoded 0.01 across a multi-second segment for THREE simultaneous
+	// horizontal boxes (vel/accel/jerk) plus the perch band produced 1000+
+	// near-duplicate rows (consecutive samples 0.01s apart on a smooth
+	// polynomial are highly correlated) -- a near-rank-deficient constraint
+	// Jacobian that made OOQP/MA27 fail to factor or fail to converge. 0.05 is
+	// a 5x coarser default (still far finer than the dynamics' own timescale)
+	// to keep the constraint count sane; configurable if you need finer/coarser.
+	double ineqSampleDt = 0.05;
 	bool constrainV = true;
 	float duration = 0.1;
 
@@ -182,6 +194,11 @@ public:
 	//is set for this plan; no-op if all three limits are disabled or
 	//segmentTimes isn't sized to vertices yet.
 	void applyHorizontalLimits();
+	//Configure the sampling step (seconds) used by every per-vertex sampled
+	//inequality: the perch eq.(14) band, applyMinAltitude, and
+	//applyHorizontalLimits. See the ineqSampleDt member comment for why the
+	//default was coarsened from the library's old hardcoded 0.01.
+	void setIneqSampleDt(double dt);
 
 	//Set Constraints
 	//pushes a waypoint into the list

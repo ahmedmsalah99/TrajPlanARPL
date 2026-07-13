@@ -43,6 +43,9 @@ traj_exe:
     horiz_vel_limit: 0.0        # m/s, sqrt(vx^2+vy^2) <= this (0 = disabled)
     horiz_accel_limit: 0.0      # m/s^2, sqrt(ax^2+ay^2) <= this (0 = disabled)
     horiz_jerk_limit: 0.0       # m/s^3, sqrt(jx^2+jy^2) <= this (0 = disabled)
+    # Sampling step (s) for every per-vertex sampled inequality. See
+    # perch_config.yaml for the full explanation.
+    ineq_sample_dt: 0.05
     # Camera / tag extrinsics (used in visual perching)
     cam_translation: [0.3, 0.0, 0.0]   # camera position offset in the body frame (m)
     # cam_tilt is ONLY used by the FOV optical-axis model now (still under
