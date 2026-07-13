@@ -76,6 +76,13 @@ double g_fov_coverage_fraction = 0.5;
 std::atomic<bool> g_replanEnabled{false};
 rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_start_replan_;
 rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_stop_replan_;
+// One-shot latch: aprilListen.flag goes 0->1 exactly once (the first
+// successful visual sync) and stays 1 forever after (deliberate -- freezes
+// the last-seen target rather than resetting on a later vision loss). This
+// tracks whether executeReplanTraj has already reacted to that transition by
+// redoing the initial plan toward the real detected target -- otherwise a
+// naive "if flag==1" check would refire on every loop iteration forever.
+bool g_visualTargetHandled = false;
 
 // Helper to declare (once) and fetch a parameter with a default.
 template <typename T>
@@ -268,12 +275,20 @@ void visualize_paths(TrajBase * traj ){
 void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * controller, TrajBase * traj){
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, false);
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
+	bool initial_ok;
 	if(usePerch){
 		std::cout << target <<std::endl;
-		replanner.initialPlan(3, target);
+		initial_ok = replanner.initialPlan(3, target);
 	}
 	else{
-		replanner.initialPlan(4);
+		initial_ok = replanner.initialPlan(4);
+	}
+	if(!initial_ok){
+		std::cout << "[INITIAL_PLAN] FAILED -- not publishing/commanding this trajectory." << std::endl;
+		controller->setEND();
+		auto trigger = std::make_shared<std_srvs::srv::Trigger::Request>();
+		hover_->async_send_request(trigger);
+		return;
 	}
 	visualize_paths(traj);
 	//Nulltracker transition
@@ -298,11 +313,19 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
 	replanner.setFOVEnable(g_fov_enable);
 	replanner.setFOVCoverageFraction(g_fov_coverage_fraction);
+	bool initial_ok;
 	if(usePerch){
-		replanner.initialPlan(3, target);
+		initial_ok = replanner.initialPlan(3, target);
 	}
 	else{
-		replanner.initialPlan(4);
+		initial_ok = replanner.initialPlan(4);
+	}
+	if(!initial_ok){
+		std::cout << "[INITIAL_PLAN] FAILED -- not publishing/commanding this trajectory." << std::endl;
+		controller->setEND();
+		auto trigger = std::make_shared<std_srvs::srv::Trigger::Request>();
+		hover_->async_send_request(trigger);
+		return;
 	}
 	std::cout << "preparation initial plan solved " <<std::endl;
 	TrajBase * traj_use = replanner.getTraj();
@@ -326,6 +349,36 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 		rclcpp::sleep_for(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(replan_time*0.1)));
 		//pubTarget.publish(target);
 		rclcpp::spin_some(node);
+
+		// aprilListen.flag transitions 0->1 exactly once (first successful visual
+		// sync) and never resets. React to that transition -- once -- by redoing
+		// the initial plan toward the now-known real target instead of whatever
+		// fallback (config target_pose, or none) the flight started with. This is
+		// independent of g_replanEnabled/replan(): it's correcting the INITIAL
+		// plan's target, not a periodic replan.
+		if(useVisual && !g_visualTargetHandled && aprilListen.flag==1){
+			g_visualTargetHandled = true;
+			Eigen::Matrix4d H;
+			if(aprilListen.getLanding(&H)){
+				std::cout << "[VISUAL_TARGET] new visual target acquired -- redoing the "
+				          << "initial plan toward it." << std::endl;
+				bool redo_ok = replanner.initialPlan(3, H);
+				if(redo_ok){
+					traj_use = replanner.getTraj();
+					controller->startFlight(traj_use);
+					visualize_paths(traj_use);
+					// Restarted the flight from t=0: don't let time already
+					// accumulated pre-redo roll into the next replan() call.
+					t0 = node->now().seconds();
+					time_plan = 0.0;
+				}
+				else{
+					std::cout << "[VISUAL_TARGET] initial plan toward the new target "
+					          << "FAILED -- keeping the previous plan running." << std::endl;
+				}
+			}
+		}
+
 		bool replan_success = false;
 		bool replanEnabledNow = g_replanEnabled.load();
 		double tend =  node->now().seconds() ;
