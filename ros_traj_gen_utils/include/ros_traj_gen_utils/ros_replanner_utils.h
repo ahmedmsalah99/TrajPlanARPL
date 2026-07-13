@@ -38,6 +38,12 @@ double fovCoverageFraction = 0.5;
 double retryStep = 0.2;   // seconds added to segment time(s) per failed solve
 int retryMax = 10;        // max solve retries before giving up / reverting
 double minSegTime = 0.5;  // segments shorter than this are merged/skipped
+// When true, the terminal waypoint's yaw (set each replan when the last
+// waypoint's position is overwritten with the detected target) is computed as
+// the bearing from the current position to the target, instead of preserving
+// whatever yaw the waypoint config specified. Off by default -- compare
+// against the preserve-configured-yaw behavior before switching this on.
+bool faceYawToTarget = false;
 public:
 ros_replan_utils();
 
@@ -63,6 +69,9 @@ void setFOVCoverageFraction(double frac);
 void setTime(std::vector<double> times_in);
 //Configure retry tuning (step seconds, max retries, min segment time)
 void setReplanParams(double step, int maxRetries, double minSeg);
+//Configure whether the terminal waypoint's yaw is auto-faced toward the
+//target (bearing) instead of preserving the waypoint config's yaw.
+void setFaceYawToTarget(bool in);
 
 };
 #endif

@@ -25,6 +25,9 @@ traj_exe:
     replan_retry_step: 0.2      # seconds added to segment time(s) per failed solve
     replan_retry_max: 10        # max solve retries before giving up / reverting
     replan_min_seg: 1.0         # (has to be longer than perch_window) segments shorter than this (s) are merged/skipped
+    # false (default): terminal yaw preserves whatever the waypoint config specifies
+    # true: terminal yaw is set each replan to the bearing toward the target
+    face_yaw_to_target: false
     # Field-of-view constraint
     fov_enable: true            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
