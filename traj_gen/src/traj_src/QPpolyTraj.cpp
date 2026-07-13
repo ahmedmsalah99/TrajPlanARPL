@@ -2,6 +2,8 @@
 using namespace std;
 #include <ctime>
 #include <Eigen/Dense>
+#include <boost/chrono.hpp>
+#include <memory>
 
 using namespace Eigen;
 
@@ -9,8 +11,12 @@ using namespace Eigen;
 static constexpr double kFastSolveRegularization = 1e-3; // Tikhonov term added to Q in fastMTSolve for positive-definiteness
 static constexpr double kEmptyIneqBound = 0.1;           // trivial bound for the placeholder inequality row when no constraints exist
 
+void QPpolyTraj::setQpSolveTimeout(double seconds){
+	qpSolveTimeoutS = seconds;
+}
+
 QPpolyTraj::QPpolyTraj()
-{    	
+{
 	dim =4;
 	limits = Eigen::VectorXd::Zero(5);
 	limits(1)=2.0;
@@ -246,8 +252,13 @@ Eigen::MatrixXd QPpolyTraj::SMsolve(int minDeriv)
 
 
 
+// coeff is a shared_ptr, not a raw pointer to MTsolve's local matrix: if this
+// call times out from MTsolve's point of view (see qpSolveTimeoutS), the
+// thread is detached and kept running rather than joined, so it can outlive
+// the MTsolve stack frame that used to own coeff. A raw pointer there would
+// be a dangling write the moment OOQP eventually did return.
 void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint qp,
-   QP_ineq_const ineq_qp, Eigen::MatrixXd* coeff, std::vector<bool>* traj_valid){
+   QP_ineq_const ineq_qp, std::shared_ptr<Eigen::MatrixXd> coeff, std::vector<bool>* traj_valid){
 	const bool ignoreUnknownError = false;
     Eigen::VectorXd sol = Eigen::VectorXd::Zero(coeffNum);
 	Eigen::VectorXd g0 = Eigen::VectorXd::Zero(coeffNum);
@@ -316,21 +327,49 @@ Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 	 std::vector<boost::thread> threads;
 	// Declare variables and zero memories
 	int numConstraint = countEqConstraintRows();
-	Eigen::MatrixXd coeff = Eigen::MatrixXd::Zero(coeffNum, dim);
+	// Heap-allocated and shared (not a local Eigen::MatrixXd) because a timed-out
+	// thread below is detached rather than joined, so it can keep running -- and
+	// writing to this -- after MTsolve returns and its stack frame is gone. Each
+	// spawned thread holds its own copy of the shared_ptr, keeping the matrix
+	// alive for as long as that thread runs, however long that ends up being.
+	auto coeff = std::make_shared<Eigen::MatrixXd>(Eigen::MatrixXd::Zero(coeffNum, dim));
    //generate object function
    	Eigen::MatrixXd D = generateObjFun(minDeriv);
 	for (int j = 0; j < dim; j++){
 		QP_constraint qp = genConstraint( j,numConstraint); //each dimension has its unique equality constraint
 		QP_ineq_const ineq_qp = genInEqConstraint(j);
-		
-		threads.push_back(boost::thread(thread_QP, j,  D, coeffNum, qp,ineq_qp,&coeff,&traj_valid));
-			//thread_QP( j,  D, coeffNum, qp,ineq_qp,&coeff,&traj_valid);
-	} 
-for (auto &th : threads) {
-    th.join();
-  }
-  coeffSolved = coeff;
-    return coeff;
+		// thread_QP only ever sets traj_valid[j] TRUE (on success); reset here so a
+		// dimension that times out below (or genuinely fails) below isn't left
+		// stale-true from an earlier, unrelated solve.
+		traj_valid[j] = false;
+		threads.push_back(boost::thread(thread_QP, j,  D, coeffNum, qp,ineq_qp,coeff,&traj_valid));
+	}
+	// Bounded join: OOQP occasionally fails to converge/terminate on a
+	// numerically tight problem (see the qpSolveTimeoutS member comment in
+	// QPpolyTraj.h). An unbounded join here previously hung the whole node
+	// forever with no further log output the moment that happened.
+	static const char* kAxisName[4] = {"x", "y", "z", "yaw"};
+	for (size_t j = 0; j < threads.size(); j++) {
+		auto timeout = boost::chrono::duration<double>(qpSolveTimeoutS);
+		if (!threads[j].try_join_for(timeout)) {
+			const char* axisName = (j < 4) ? kAxisName[j] : "?";
+			std::cout << "[QP_TIMEOUT] OOQP did not return within " << qpSolveTimeoutS
+			          << "s on dim=" << j << " (" << axisName << ") -- treating as failed "
+			          << "and moving on. OOQP gives no safe way to cancel an in-progress "
+			          << "solve, so the thread is detached and left running in the "
+			          << "background; this dimension's coefficients are not used."
+			          << std::endl;
+			traj_valid[j] = false;
+			threads[j].detach();
+		}
+	}
+	// Snapshot copy: any detached, still-running thread from the timeout branch
+	// above only ever writes its own timed-out dimension's column, and that
+	// dimension is already marked invalid (traj_valid[j]=false), so a possible
+	// torn read of that one column here doesn't affect anything actually
+	// consumed downstream -- calculateCurrentPt() requires all four dims valid.
+	coeffSolved = *coeff;
+    return *coeff;
 }
 
 
