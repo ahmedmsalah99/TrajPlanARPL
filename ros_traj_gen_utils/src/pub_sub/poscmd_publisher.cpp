@@ -107,6 +107,10 @@ int poscmd_publisher::getState(){
 	return state;
 }
 
+double poscmd_publisher::getTrajTime(){
+	return (node_->now() - begin).seconds();
+}
+
 void poscmd_publisher::setEND(){
 	state =END;
 }
