@@ -317,7 +317,7 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 				if(i!=3){ swAcc[i] = sw(2,i); }
 			}
 			double ang = trajectory->checkFovAxisAngle(sweepTarget, swPose, swAcc);
-			std::cout << "[FOVDIAG][SWEEP] t=" << tSweep << " angle_deg=" << ang << std::endl;
+			// std::cout << "[FOVDIAG][SWEEP] t=" << tSweep << " angle_deg=" << ang << std::endl;
 		}
 	}
 
