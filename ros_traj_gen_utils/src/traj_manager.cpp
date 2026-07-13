@@ -268,12 +268,20 @@ void visualize_paths(TrajBase * traj ){
 void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * controller, TrajBase * traj){
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, false);
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
+	bool initial_ok;
 	if(usePerch){
 		std::cout << target <<std::endl;
-		replanner.initialPlan(3, target);
+		initial_ok = replanner.initialPlan(3, target);
 	}
 	else{
-		replanner.initialPlan(4);
+		initial_ok = replanner.initialPlan(4);
+	}
+	if(!initial_ok){
+		std::cout << "[INITIAL_PLAN] FAILED -- not publishing/commanding this trajectory." << std::endl;
+		controller->setEND();
+		auto trigger = std::make_shared<std_srvs::srv::Trigger::Request>();
+		hover_->async_send_request(trigger);
+		return;
 	}
 	visualize_paths(traj);
 	//Nulltracker transition
@@ -298,11 +306,19 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
 	replanner.setFOVEnable(g_fov_enable);
 	replanner.setFOVCoverageFraction(g_fov_coverage_fraction);
+	bool initial_ok;
 	if(usePerch){
-		replanner.initialPlan(3, target);
+		initial_ok = replanner.initialPlan(3, target);
 	}
 	else{
-		replanner.initialPlan(4);
+		initial_ok = replanner.initialPlan(4);
+	}
+	if(!initial_ok){
+		std::cout << "[INITIAL_PLAN] FAILED -- not publishing/commanding this trajectory." << std::endl;
+		controller->setEND();
+		auto trigger = std::make_shared<std_srvs::srv::Trigger::Request>();
+		hover_->async_send_request(trigger);
+		return;
 	}
 	std::cout << "preparation initial plan solved " <<std::endl;
 	TrajBase * traj_use = replanner.getTraj();
@@ -313,19 +329,26 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	controller->startFlight(traj_use);
 	double t0 = node->now().seconds() ;
 	double replan_time = g_replan_time;
+	// Gates replan()'s call cadence ONLY. Pinned at 0 while replanning isn't
+	// enabled (see below) and reset to 0 the instant it becomes enabled, so
+	// replan()'s incremental "continue from the predicted future point" model
+	// (which needs real elapsed FLIGHT time) never sees time accumulated while
+	// the vehicle wasn't actually being driven by the plan yet -- this is the
+	// entire fix from the earlier "commanded acceleration far from the
+	// vehicle's real acceleration" bug and must stay untouched by anything else.
 	double time_plan = 0;
-	// Was replanning enabled on the PREVIOUS iteration? Used below to detect
-	// the false->true transition (start_replan just got called) and reset the
-	// elapsed-time bookkeeping right then, rather than let time_plan/t_elap
-	// carry however long we'd been idling (potentially waiting on offboard
-	// confirmation) into the very first replan() call as if the vehicle had
-	// been flying the initial plan that whole time.
+	// Fully independent of time_plan: gates how often the initial plan gets
+	// re-solved toward the current visual target while replanning isn't
+	// enabled yet. Only ever read/written in the `else` branch below; replan()
+	// never sees this variable at all.
+	double visual_refresh_time = 0;
 	bool replanWasEnabled = false;
 	std::cout << "TIME Start Flight " << node->now().seconds() <<std::endl;
 	while(controller->getState() != HOVER && rclcpp::ok()){
 		rclcpp::sleep_for(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(replan_time*0.1)));
 		//pubTarget.publish(target);
 		rclcpp::spin_some(node);
+
 		bool replan_success = false;
 		bool replanEnabledNow = g_replanEnabled.load();
 		double tend =  node->now().seconds() ;
@@ -338,44 +361,69 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 		replanWasEnabled = replanEnabledNow;
 		double t_elap = tend - t0;
 		t0 = tend;
+
 		if(replanEnabledNow){
 			time_plan+=t_elap;
-		}
-		else{
-			// Pinned at 0 while disabled: the initial (or last-replanned) trajectory
-			// keeps being published unchanged by poscmd_publisher's own timer: we
-			// simply never call replan() below.
-			time_plan = 0.0;
-		}
-		//Publish apriltag Detection
-		if (replanEnabledNow && time_plan >=replan_time){
-			//std::cout << "replan start" <<std::endl;
-			double replan_timer = node->now().seconds() ;
-			if(useVisual){
-				Eigen::Matrix4d H;
-				if(aprilListen.getLanding(&H)){
-					// std::cout << "[DIAG] getLanding OK, target H=\n" << H << std::endl;
-					replan_success = replanner.replan(4,time_plan,g_replan_t_off,H);
+			if (time_plan >=replan_time){
+				//std::cout << "replan start" <<std::endl;
+				double replan_timer = node->now().seconds() ;
+				if(useVisual){
+					Eigen::Matrix4d H;
+					if(aprilListen.getLanding(&H)){
+						// std::cout << "[DIAG] getLanding OK, target H=\n" << H << std::endl;
+						replan_success = replanner.replan(4,time_plan,g_replan_t_off,H);
+					}
+					else{
+						std::cout << "[DIAG] getLanding FAILED (tag not consumed; "
+						          << "using stale/initial plan)" << std::endl;
+					}
 				}
 				else{
-					std::cout << "[DIAG] getLanding FAILED (tag not consumed; "
-					          << "using stale/initial plan)" << std::endl;
+					replan_success = replanner.replan(4, time_plan, g_replan_t_off);
+				}
+				//std::cout << "replan end" <<std::endl;
+				if (replan_success){
+					traj_use = replanner.getTraj();
+					controller->startFlight(traj_use);
+					//refresh RViz so it shows the live replanned trajectory, not the
+					//stale initial plan (the endpoint tracks the moving target)
+					visualize_paths(traj_use);
+				}
+				double replan_timer_end =  node->now().seconds() ;
+				// std::cout << "Time ELAPSED " <<replan_timer_end-replan_timer <<std::endl;
+				time_plan = 0.0;
+			}
+		}
+		else{
+			// Pinned at 0 while disabled -- see the member comment above.
+			time_plan = 0.0;
+			if(useVisual){
+				// Not flying for real yet (still waiting on start_replan, e.g. for
+				// offboard to be confirmed): keep the INITIAL plan aimed at wherever
+				// the visual target currently is by re-solving it fresh (from the
+				// vehicle's current position, not a predicted one) at this same
+				// cadence -- so a moving/updating target keeps being tracked
+				// continuously, not just on the first-ever sighting. Uses its own
+				// independent timer (visual_refresh_time), never time_plan.
+				visual_refresh_time += t_elap;
+				if(visual_refresh_time >= replan_time){
+					Eigen::Matrix4d H;
+					if(aprilListen.getLanding(&H)){
+						bool redo_ok = replanner.initialPlan(3, H);
+						if(redo_ok){
+							traj_use = replanner.getTraj();
+							controller->startFlight(traj_use);
+							visualize_paths(traj_use);
+						}
+						else{
+							std::cout << "[VISUAL_TARGET] initial plan toward the current "
+							          << "target FAILED -- keeping the previous plan running."
+							          << std::endl;
+						}
+					}
+					visual_refresh_time = 0.0;
 				}
 			}
-			else{
-				replan_success = replanner.replan(4, time_plan, g_replan_t_off);
-			}
-			//std::cout << "replan end" <<std::endl;
-			if (replan_success){
-				traj_use = replanner.getTraj();
-				controller->startFlight(traj_use);
-				//refresh RViz so it shows the live replanned trajectory, not the
-				//stale initial plan (the endpoint tracks the moving target)
-				visualize_paths(traj_use);
-			}
-			double replan_timer_end =  node->now().seconds() ;
-			// std::cout << "Time ELAPSED " <<replan_timer_end-replan_timer <<std::endl;
-			time_plan = 0.0;
 		}
 	}
 	std::cout << "replanning time done, take a hover" << std::endl;
