@@ -25,6 +25,19 @@ RC switch happens to be doing" to an explicit, single, timed operator action.
 disable_offboard stops the stream again (PX4 falls out of offboard on its own
 once the stream lapses).
 
+Once OFFBOARD is confirmed active (by watching px4_msgs/VehicleStatus.nav_state,
+not just by having sent the mode-switch command -- PX4 can reject/delay it),
+this node calls the planner's (ros_traj_gen_utils' traj_exe) start_replan
+service. Until then, traj_exe only publishes its initial plan on a loop and
+never calls replan() -- see traj_manager.cpp's g_replanEnabled. This avoids
+replan()'s elapsed-time bookkeeping running (on a real wall-clock timer)
+while the vehicle isn't actually being driven by the plan yet, which used to
+walk the "predicted current/future point" evaluation right off the end of
+the segment and lock onto the trajectory's terminal (e.g. perch contact)
+acceleration instead of the vehicle's real, ~zero, hovering acceleration.
+disable_offboard calls stop_replan too, tying "leave offboard" and "stop
+replanning" together.
+
 Arming is deliberately still out of scope -- left to RC/QGroundControl/your
 own tooling. enable_offboard only requests the OFFBOARD mode switch; it does
 not arm the vehicle.
@@ -42,7 +55,7 @@ from geometry_msgs.msg import PoseStamped
 from std_srvs.srv import Trigger
 
 from quadrotor_msgs.msg import PositionCommand
-from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint, VehicleCommand
+from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus
 
 
 class OffboardBridge(Node):
@@ -62,11 +75,18 @@ class OffboardBridge(Node):
         # called before sending the DO_SET_MODE command -- gives PX4 time to
         # see the stream as established (its own precondition for offboard).
         self.declare_parameter('offboard_prime_s', 1.0)
+        # After sending DO_SET_MODE, how long to wait for VehicleStatus to
+        # confirm OFFBOARD before logging a (one-time, non-fatal) warning that
+        # it's taking unusually long. Checking continues either way -- this is
+        # informational, not a give-up deadline.
+        self.declare_parameter('offboard_confirm_timeout_s', 5.0)
 
         device = self.get_parameter('device').value
         offboard_rate_hz = float(self.get_parameter('offboard_rate_hz').value)
         self.command_timeout_s = float(self.get_parameter('command_timeout_s').value)
         self.offboard_prime_s = float(self.get_parameter('offboard_prime_s').value)
+        self.offboard_confirm_timeout_s = float(
+            self.get_parameter('offboard_confirm_timeout_s').value)
 
         # PX4 topics are best-effort, depth-1 -- matches the QoS already used
         # for VehicleOdometry elsewhere in this repo (traj_manager.cpp,
@@ -85,14 +105,26 @@ class OffboardBridge(Node):
 
         self.cmd_sub = self.create_subscription(
             PositionCommand, device + '/position_cmd', self._on_position_cmd, 10)
+        self.status_sub = self.create_subscription(
+            VehicleStatus, '/fmu/out/vehicle_status', self._on_vehicle_status, px4_qos)
+
+        # traj_exe's replan gate (see traj_manager.cpp's g_replanEnabled) --
+        # same vehicle_name-prefixed service naming convention as its other
+        # services (mav_services/hover, trackers_manager/transition).
+        self.start_replan_client = self.create_client(Trigger, device + '/start_replan')
+        self.stop_replan_client = self.create_client(Trigger, device + '/stop_replan')
 
         self._last_cmd_time = None
         self._warned_stale = False
+        self._nav_state = None
 
         # Stream is off until enable_offboard is called -- see module docstring.
         self._streaming = False
         self._streaming_since = None
         self._mode_cmd_sent = False
+        self._mode_cmd_sent_at = None
+        self._replan_started = False
+        self._warned_confirm_slow = False
 
         self.create_timer(1.0 / offboard_rate_hz, self._publish_offboard_heartbeat)
         # Independent watchdog timer for the staleness warning, decoupled from
@@ -108,8 +140,10 @@ class OffboardBridge(Node):
             'PX4 offboard bridge up: %s/position_cmd -> /fmu/in/trajectory_setpoint, '
             'heartbeat -> /fmu/in/offboard_control_mode @ %.1f Hz. '
             'Stream is OFF until the enable_offboard service is called '
-            '(disable_offboard stops it again). Arming is NOT handled here.'
-            % (device, offboard_rate_hz))
+            '(disable_offboard stops it and calls %s/stop_replan). Once OFFBOARD is '
+            'confirmed via VehicleStatus, %s/start_replan is called. Arming is NOT '
+            'handled here.'
+            % (device, offboard_rate_hz, device, device))
 
     def _now_us(self):
         # PX4 timestamps are microseconds.
@@ -140,9 +174,36 @@ class OffboardBridge(Node):
             if elapsed_s >= self.offboard_prime_s:
                 self._send_offboard_mode_command()
                 self._mode_cmd_sent = True
+                self._mode_cmd_sent_at = self.get_clock().now().nanoseconds
                 self.get_logger().info(
                     'Stream established for %.2fs, requesting OFFBOARD mode switch.'
                     % elapsed_s)
+        elif not self._replan_started:
+            self._check_offboard_confirmed_and_start_replan()
+
+    def _on_vehicle_status(self, msg: VehicleStatus):
+        self._nav_state = msg.nav_state
+
+    def _check_offboard_confirmed_and_start_replan(self):
+        if self._nav_state == VehicleStatus.NAVIGATION_STATE_OFFBOARD:
+            self._replan_started = True
+            self._warned_confirm_slow = False
+            self.get_logger().info(
+                'VehicleStatus confirms OFFBOARD is active -- calling start_replan.')
+            if self.start_replan_client.service_is_ready():
+                self.start_replan_client.call_async(Trigger.Request())
+            else:
+                self.get_logger().warn(
+                    'start_replan service not available -- traj_exe may not be running.')
+            return
+
+        wait_s = (self.get_clock().now().nanoseconds - self._mode_cmd_sent_at) / 1e9
+        if wait_s > self.offboard_confirm_timeout_s and not self._warned_confirm_slow:
+            self.get_logger().warn(
+                'DO_SET_MODE sent %.1fs ago but VehicleStatus still reports nav_state=%s, '
+                'not OFFBOARD (%d) -- check the RC switch/QGC mode selector. Still watching.'
+                % (wait_s, str(self._nav_state), VehicleStatus.NAVIGATION_STATE_OFFBOARD))
+            self._warned_confirm_slow = True
 
     def _check_stale(self):
         if self._last_cmd_time is None:
@@ -221,6 +282,9 @@ class OffboardBridge(Node):
         self._streaming = True
         self._streaming_since = self.get_clock().now().nanoseconds
         self._mode_cmd_sent = False
+        self._mode_cmd_sent_at = None
+        self._replan_started = False
+        self._warned_confirm_slow = False
         response.success = True
         response.message = (
             'Streaming started, requesting OFFBOARD in %.2fs.' % self.offboard_prime_s)
@@ -231,8 +295,18 @@ class OffboardBridge(Node):
         self._streaming = False
         self._streaming_since = None
         self._mode_cmd_sent = False
+        self._mode_cmd_sent_at = None
+        was_replanning = self._replan_started
+        self._replan_started = False
+        self._warned_confirm_slow = False
+        if was_replanning:
+            if self.stop_replan_client.service_is_ready():
+                self.stop_replan_client.call_async(Trigger.Request())
+            else:
+                self.get_logger().warn(
+                    'stop_replan service not available -- traj_exe may not be running.')
         response.success = True
-        response.message = 'Streaming stopped.'
+        response.message = 'Streaming stopped.' + (' Replanning stopped too.' if was_replanning else '')
         self.get_logger().info(response.message)
         return response
 
