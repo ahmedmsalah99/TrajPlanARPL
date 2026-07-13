@@ -3,6 +3,17 @@
 #include <algorithm>
 using namespace std;
 
+// Inscribed square: |vx|,|vy| <= limit/sqrt(2) guarantees the true horizontal
+// magnitude sqrt(vx^2+vy^2) never exceeds the configured limit (equality only
+// at the box's corners). Shared by applyHorizontalLimits() (which enforces
+// this bound) and calcPerchCond() (which must check against this SAME bound,
+// not the raw circular limit, since a pure-axis perch approach can have its
+// full horizontal magnitude on one axis alone -- comparing against the wider
+// circular limit there would pass a target whose terminal equality then
+// directly contradicts this box's inequality on that axis, an empty feasible
+// region that made OOQP hang instead of cleanly reporting infeasible).
+static const double kInscribedSquareScale = 1.0 / sqrt(2.0);
+
 TrajBase::TrajBase()
 {
 }
@@ -393,24 +404,37 @@ bool TrajBase::calcPerchCond(Eigen::Matrix4d H){
 
 	// Reject up front if the perch physics (fixed by the target geometry and
 	// maxInclinationAccel/impactNormalVel/impactSlideVel) demand more horizontal
-	// acceleration or impact velocity than the configured horizontal limits
+	// acceleration or impact velocity than applyHorizontalLimits() will actually
 	// allow, instead of pushing constraints that fight each other and letting
-	// the QP fail on the final segment. Checked against the true (circular)
-	// limit, not the internal per-axis inscribed-square box -- this is a
-	// physical requirement check, not the box's own conservative bound.
-	double finalAccelHoriz = sqrt(finalAccel[0]*finalAccel[0] + finalAccel[1]*finalAccel[1]);
-	double impVelHoriz = sqrt(impVel(0)*impVel(0) + impVel(1)*impVel(1));
-	if(horizAccelLimit > 0.0 && finalAccelHoriz > horizAccelLimit){
+	// the QP fail on the final segment. Must check against the SAME per-axis
+	// inscribed-square bound the box enforces (limit/sqrt(2) on ax and ay
+	// independently) -- NOT the wider raw circular limit: a pure-axis perch
+	// approach (e.g. s3 = (-1,0,0)) can put its entire horizontal magnitude on
+	// one axis alone, which the box constrains to limit/sqrt(2), not limit.
+	// Checking the combined magnitude against the raw limit let exactly that
+	// case slip through (13.81 < 15 raw, but > 15/sqrt(2)=10.6 per-axis),
+	// leaving a terminal equality that directly contradicts the box's
+	// inequality on the same axis -- an empty feasible region that made OOQP
+	// hang instead of cleanly reporting infeasible.
+	double accelBound = horizAccelLimit * kInscribedSquareScale;
+	double velBound = horizVelLimit * kInscribedSquareScale;
+	if(horizAccelLimit > 0.0 &&
+	   (fabs(finalAccel[0]) > accelBound || fabs(finalAccel[1]) > accelBound)){
 		std::cout << "[HORIZ_LIMIT] REJECTED plan: perch terminal horizontal acceleration ("
-		          << finalAccelHoriz << " m/s^2) exceeds horiz_accel_limit ("
-		          << horizAccelLimit << " m/s^2). Raise horiz_accel_limit, lower "
-		          << "max_inclination_accel, or use a less steep target." << std::endl;
+		          << finalAccel[0] << ", " << finalAccel[1]
+		          << " m/s^2) exceeds the per-axis bound (+/-" << accelBound
+		          << " m/s^2, from horiz_accel_limit=" << horizAccelLimit
+		          << "). Raise horiz_accel_limit, lower max_inclination_accel, "
+		          << "or use a less steep target." << std::endl;
 		return false;
 	}
-	if(horizVelLimit > 0.0 && impVelHoriz > horizVelLimit){
+	if(horizVelLimit > 0.0 &&
+	   (fabs(impVel(0)) > velBound || fabs(impVel(1)) > velBound)){
 		std::cout << "[HORIZ_LIMIT] REJECTED plan: perch impact horizontal velocity ("
-		          << impVelHoriz << " m/s) exceeds horiz_vel_limit ("
-		          << horizVelLimit << " m/s). Raise horiz_vel_limit or lower "
+		          << impVel(0) << ", " << impVel(1)
+		          << " m/s) exceeds the per-axis bound (+/-" << velBound
+		          << " m/s, from horiz_vel_limit=" << horizVelLimit
+		          << "). Raise horiz_vel_limit or lower "
 		          << "impact_normal_vel/impact_slide_vel." << std::endl;
 		return false;
 	}
@@ -609,10 +633,6 @@ void TrajBase::applyHorizontalLimits(){
 	// the live start vertex's velocity/acceleration from odom) that this box
 	// could otherwise conflict with and make the QP infeasible on every solve.
 	const double kSampleDt = 0.01; // must match genInEqConstraint's dt
-	// Inscribed square: |vx|,|vy| <= limit/sqrt(2) guarantees the true
-	// horizontal magnitude sqrt(vx^2+vy^2) never exceeds the configured limit
-	// (equality only at the box's corners); see the member comments above.
-	const double kInscribedSquareScale = 1.0 / sqrt(2.0);
 
 	auto pushBox = [&](size_t i, int derivOrder, double limit, double window){
 		double boxLimit = limit * kInscribedSquareScale;
