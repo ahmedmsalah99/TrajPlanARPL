@@ -9,10 +9,10 @@ traj_exe:
     use_sim_time: true
     # Dynamic limits used for time allocation
     v_max: 10.0               # max velocity (m/s)
-    a_max: 10.0              # max acceleration (m/s^2)
+    a_max: 15.0              # max acceleration (m/s^2)
     # Perching parameters
-    max_inclination_accel: 6.0  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
-    impact_normal_vel: 0.5      # vS1: impact speed INTO the surface (m/s)
+    max_inclination_accel: 10.0  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
+    impact_normal_vel: 2.0      # vS1: impact speed INTO the surface (m/s)
     impact_slide_vel: 0.0      # vS3: impact speed ALONG the surface, down-slope (m/s)
     min_pitch: 0.5              # inclination below this (rad) -> soft landing
     # eq.(14) approach band (acceleration kept near the target before impact)
@@ -48,7 +48,7 @@ traj_exe:
     # required terminal horizontal accel/impact velocity would exceed these,
     # the plan is rejected (logged) rather than generated infeasible.
     horiz_vel_limit: 10.0        # m/s, sqrt(vx^2+vy^2) <= this (0 = disabled)
-    horiz_accel_limit: 10.0      # m/s^2, sqrt(ax^2+ay^2) <= this (0 = disabled)
+    horiz_accel_limit: 15.0      # m/s^2, sqrt(ax^2+ay^2) <= this (0 = disabled)
     horiz_jerk_limit: 20.0       # m/s^3, sqrt(jx^2+jy^2) <= this (0 = disabled)
     # Sampling step (s) for every per-vertex sampled inequality: the perch
     # eq.(14) band, min-altitude, and the horizontal limits above. Coarsened

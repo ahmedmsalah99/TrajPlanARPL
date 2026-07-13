@@ -106,7 +106,7 @@ class OffboardBridge(Node):
         self.cmd_sub = self.create_subscription(
             PositionCommand, device + '/position_cmd', self._on_position_cmd, 10)
         self.status_sub = self.create_subscription(
-            VehicleStatus, '/fmu/out/vehicle_status', self._on_vehicle_status, px4_qos)
+            VehicleStatus, '/fmu/out/vehicle_status_v1', self._on_vehicle_status, px4_qos)
 
         # traj_exe's replan gate (see traj_manager.cpp's g_replanEnabled) --
         # same vehicle_name-prefixed service naming convention as its other
