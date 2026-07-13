@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <memory>
+#include <atomic>
 #include <traj_gen/trajectory/Waypoint.h>
 #include <traj_gen/trajectory/QPpolyTraj.h>
 #include <traj_gen/traj_utils/polynomial.h>
@@ -65,6 +66,16 @@ int g_replan_retry_max = 10;
 double g_replan_min_seg = 0.5;
 bool g_fov_enable = true;
 double g_fov_coverage_fraction = 0.5;
+// Gates executeReplanTraj's replan() loop: the initial plan is always solved
+// and continuously published (via poscmd_publisher's own timer) regardless
+// of this flag, but replan() is only called once this is true. Off by
+// default -- start_replan/stop_replan (Trigger services) are the only way to
+// flip it, so replanning begins only once whatever's driving the vehicle
+// (e.g. offboard_bridge, after confirming PX4 actually entered OFFBOARD) has
+// deliberately asked for it, not the instant the initial plan finishes.
+std::atomic<bool> g_replanEnabled{false};
+rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_start_replan_;
+rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_stop_replan_;
 
 // Helper to declare (once) and fetch a parameter with a default.
 template <typename T>
@@ -164,6 +175,25 @@ void init_params(){
 		[](const nav_msgs::msg::Path &msg){ listener.waypointListiner(msg); });
 	srv_transition_ = node->create_client<trackers_msgs::srv::Transition>(vehicle_name+"/trackers_manager/transition");
 	hover_	= node->create_client<std_srvs::srv::Trigger>(vehicle_name+"/mav_services/hover");
+	srv_start_replan_ = node->create_service<std_srvs::srv::Trigger>(
+		vehicle_name+"/start_replan",
+		[](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+		   std::shared_ptr<std_srvs::srv::Trigger::Response> response){
+			g_replanEnabled = true;
+			response->success = true;
+			response->message = "Replanning enabled.";
+			std::cout << "[REPLAN_GATE] " << response->message << std::endl;
+		});
+	srv_stop_replan_ = node->create_service<std_srvs::srv::Trigger>(
+		vehicle_name+"/stop_replan",
+		[](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+		   std::shared_ptr<std_srvs::srv::Trigger::Response> response){
+			g_replanEnabled = false;
+			response->success = true;
+			response->message = "Replanning disabled -- the last successfully "
+			                     "replanned trajectory keeps being published as-is.";
+			std::cout << "[REPLAN_GATE] " << response->message << std::endl;
+		});
 	std::string odom_frame = getParamOr<std::string>("odom_frame", std::string("/odom"));
 	target.setIdentity();
 	//load a preselcted target
@@ -284,18 +314,41 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	double t0 = node->now().seconds() ;
 	double replan_time = g_replan_time;
 	double time_plan = 0;
+	// Was replanning enabled on the PREVIOUS iteration? Used below to detect
+	// the false->true transition (start_replan just got called) and reset the
+	// elapsed-time bookkeeping right then, rather than let time_plan/t_elap
+	// carry however long we'd been idling (potentially waiting on offboard
+	// confirmation) into the very first replan() call as if the vehicle had
+	// been flying the initial plan that whole time.
+	bool replanWasEnabled = false;
 	std::cout << "TIME Start Flight " << node->now().seconds() <<std::endl;
 	while(controller->getState() != HOVER && rclcpp::ok()){
 		rclcpp::sleep_for(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(replan_time*0.1)));
 		//pubTarget.publish(target);
 		rclcpp::spin_some(node);
 		bool replan_success = false;
+		bool replanEnabledNow = g_replanEnabled.load();
 		double tend =  node->now().seconds() ;
+		if(replanEnabledNow && !replanWasEnabled){
+			std::cout << "[REPLAN_GATE] replanning just enabled -- resetting elapsed-time "
+			          << "bookkeeping so the idle/waiting period isn't counted" << std::endl;
+			t0 = tend;
+			time_plan = 0.0;
+		}
+		replanWasEnabled = replanEnabledNow;
 		double t_elap = tend - t0;
 		t0 = tend;
-		time_plan+=t_elap;
+		if(replanEnabledNow){
+			time_plan+=t_elap;
+		}
+		else{
+			// Pinned at 0 while disabled: the initial (or last-replanned) trajectory
+			// keeps being published unchanged by poscmd_publisher's own timer: we
+			// simply never call replan() below.
+			time_plan = 0.0;
+		}
 		//Publish apriltag Detection
-		if (time_plan >=replan_time){
+		if (replanEnabledNow && time_plan >=replan_time){
 			//std::cout << "replan start" <<std::endl;
 			double replan_timer = node->now().seconds() ;
 			if(useVisual){
