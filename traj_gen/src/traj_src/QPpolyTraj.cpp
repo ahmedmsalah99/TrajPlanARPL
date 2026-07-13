@@ -213,11 +213,29 @@ Eigen::MatrixXd QPpolyTraj::SMsolve(int minDeriv)
    */
     //std::cout << " qp_constr.b" <<std::endl;
     // std::cout <<  qp_constr.b <<std::endl;
-    if(ooqpei::OoqpEigenInterface::solve(Obj, g0 ,
-                   AooQP, qp_constr.b,
-                    C,
-                    qp_ineq_constr.d,qp_ineq_constr.f,
-					sol,ignoreUnknownError)){
+	// OOQP's MA27 backend can throw std::runtime_error ("MA27 cannot factor
+	// matrix") on a numerically degenerate problem instead of returning false.
+	// This call runs on the caller's own thread (unlike thread_QP's per-axis
+	// solves, which run in their own threads and are already guarded) -- an
+	// uncaught exception here propagates straight up through solve() into
+	// whatever's driving the replanner (traj_manager's main loop), calling
+	// std::terminate() and killing the whole node. Catch broadly and treat it
+	// as a normal solve failure.
+	bool solved = false;
+	try {
+		solved = ooqpei::OoqpEigenInterface::solve(Obj, g0 ,
+	                   AooQP, qp_constr.b,
+	                    C,
+	                    qp_ineq_constr.d,qp_ineq_constr.f,
+						sol,ignoreUnknownError);
+	} catch (const std::exception& e) {
+		std::cout << "[QP_EXCEPTION] OOQP threw on joint solve: " << e.what()
+		          << " -- treating as failed." << std::endl;
+	} catch (...) {
+		std::cout << "[QP_EXCEPTION] OOQP threw a non-standard exception on "
+		          << "joint solve -- treating as failed." << std::endl;
+	}
+	if(solved){
 		// Unlike thread_QP (per-axis), this success path previously printed
 		// nothing at all -- only failure was logged. That made it impossible to
 		// tell from the log whether the joint FOV solve ever actually succeeded,
@@ -259,58 +277,64 @@ Eigen::MatrixXd QPpolyTraj::SMsolve(int minDeriv)
 // thread is detached and kept running rather than joined, so it can outlive
 // the MTsolve stack frame that used to own them. Raw pointers there would be
 // dangling writes the moment OOQP eventually did return. done is set true as
-// the last step, after coeff/traj_valid are written, so MTsolve's polling
-// loop only observes completion once those writes are visible to it.
+// the very last step (including on the exception paths below), so MTsolve's
+// polling loop only observes completion once coeff/traj_valid are settled --
+// or promptly, rather than waiting out the full timeout, if OOQP throws
+// before the deadline.
 void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint qp,
    QP_ineq_const ineq_qp, std::shared_ptr<Eigen::MatrixXd> coeff, std::vector<bool>* traj_valid,
    std::shared_ptr<std::atomic<bool>> done){
-	const bool ignoreUnknownError = false;
-    Eigen::VectorXd sol = Eigen::VectorXd::Zero(coeffNum);
-	Eigen::VectorXd g0 = Eigen::VectorXd::Zero(coeffNum);
-	//Create Copy since the quadprog changes the X&T Q  X matrix each run
-	Eigen::SparseMatrix<double, Eigen::RowMajor> Obj = Qobj.sparseView();
-	Eigen::MatrixXd A = qp.a, b = qp.b;
-	Eigen::SparseMatrix<double, Eigen::RowMajor> AooQP = A.sparseView();
-	Eigen::SparseMatrix<double, Eigen::RowMajor> C = ineq_qp.C.sparseView();
-  /*!
-   * Solve min 1/2 x' Q x + c' x, such that A x = b, and d <= Cx <= f
-   * @param [in] Q a symmetric positive semidefinite matrix (nxn)
-   * @param [in] c a vector (nx1)
-   * @param [in] A a (possibly null) matrices (m_axn)
-   * @param [in] b a vector (m_ax1)
-   * @param [in] C a (possibly null) matrices (m_cxn)
-   * @param [in] d a vector (m_cx1)
-   * @param [in] f a vector (m_cx1)
-   * @param [out] x a vector of variables (nx1)
-   * @return true if successful
-   */
-   /*
-    std::cout << "Obj: " << Obj << std::endl;
-	std::cout << "g0: " << g0 << std::endl;
-   	std::cout << "AOOQP: " << AooQP << std::endl;
-	std::cout << "B: " << b << std::endl;
-   	std::cout << "C: " << C << std::endl;
-	std::cout << "d: " << ineq_qp.d << std::endl;
-   	std::cout << "f: " << ineq_qp.f << std::endl;
-	*/
     static const char* kAxisName[4] = {"x", "y", "z", "yaw"};
     const char* axisName = (dimension >= 0 && dimension < 4) ? kAxisName[dimension] : "?";
-    if(ooqpei::OoqpEigenInterface::solve(Obj, g0 ,
-                   AooQP, b,
-                    C,
-                    ineq_qp.d,ineq_qp.f,
-					sol,ignoreUnknownError)){
-		std::cout << "QP successful generation [dim=" << dimension << " (" << axisName << ")]" << std::endl;
-		traj_valid->operator[](dimension) = true;
-	}
-	else{
-		std::cout << "QP Failed generation [dim=" << dimension << " (" << axisName << ")]"
-		          << " numIneqRows=" << ineq_qp.d.rows() << std::endl;
-	}
-    //Eigen::MatrixXd Cost = sol.transpose() * Obj * sol;
-	//std::cout << "QP cost:" << Cost<< std::endl;
-	for (int i =0;i<coeffNum;i++){
-		coeff->operator()(i,dimension)  = sol[i];
+	// OOQP's MA27 backend can throw std::runtime_error ("MA27 cannot factor
+	// matrix") on a numerically degenerate problem instead of returning false.
+	// An uncaught exception on ANY thread -- including this one, possibly
+	// running detached well after MTsolve gave up on it -- calls
+	// std::terminate() and kills the whole process. Catch broadly and treat it
+	// the same as a normal solve failure: traj_valid[dimension] simply never
+	// gets set true.
+	try {
+		const bool ignoreUnknownError = false;
+		Eigen::VectorXd sol = Eigen::VectorXd::Zero(coeffNum);
+		Eigen::VectorXd g0 = Eigen::VectorXd::Zero(coeffNum);
+		//Create Copy since the quadprog changes the X&T Q  X matrix each run
+		Eigen::SparseMatrix<double, Eigen::RowMajor> Obj = Qobj.sparseView();
+		Eigen::MatrixXd A = qp.a, b = qp.b;
+		Eigen::SparseMatrix<double, Eigen::RowMajor> AooQP = A.sparseView();
+		Eigen::SparseMatrix<double, Eigen::RowMajor> C = ineq_qp.C.sparseView();
+	  /*!
+	   * Solve min 1/2 x' Q x + c' x, such that A x = b, and d <= Cx <= f
+	   * @param [in] Q a symmetric positive semidefinite matrix (nxn)
+	   * @param [in] c a vector (nx1)
+	   * @param [in] A a (possibly null) matrices (m_axn)
+	   * @param [in] b a vector (m_ax1)
+	   * @param [in] C a (possibly null) matrices (m_cxn)
+	   * @param [in] d a vector (m_cx1)
+	   * @param [in] f a vector (m_cx1)
+	   * @param [out] x a vector of variables (nx1)
+	   * @return true if successful
+	   */
+		if(ooqpei::OoqpEigenInterface::solve(Obj, g0 ,
+	                   AooQP, b,
+	                    C,
+	                    ineq_qp.d,ineq_qp.f,
+						sol,ignoreUnknownError)){
+			std::cout << "QP successful generation [dim=" << dimension << " (" << axisName << ")]" << std::endl;
+			traj_valid->operator[](dimension) = true;
+		}
+		else{
+			std::cout << "QP Failed generation [dim=" << dimension << " (" << axisName << ")]"
+			          << " numIneqRows=" << ineq_qp.d.rows() << std::endl;
+		}
+		for (int i =0;i<coeffNum;i++){
+			coeff->operator()(i,dimension)  = sol[i];
+		}
+	} catch (const std::exception& e) {
+		std::cout << "[QP_EXCEPTION] OOQP threw on dim=" << dimension << " (" << axisName
+		          << "): " << e.what() << " -- treating as failed." << std::endl;
+	} catch (...) {
+		std::cout << "[QP_EXCEPTION] OOQP threw a non-standard exception on dim=" << dimension
+		          << " (" << axisName << ") -- treating as failed." << std::endl;
 	}
 	done->store(true);
 }
