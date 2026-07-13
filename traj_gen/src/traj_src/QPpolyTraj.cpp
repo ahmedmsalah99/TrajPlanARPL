@@ -2,8 +2,10 @@
 using namespace std;
 #include <ctime>
 #include <Eigen/Dense>
-#include <boost/chrono.hpp>
 #include <memory>
+#include <atomic>
+#include <chrono>
+#include <thread>
 
 using namespace Eigen;
 
@@ -252,13 +254,16 @@ Eigen::MatrixXd QPpolyTraj::SMsolve(int minDeriv)
 
 
 
-// coeff is a shared_ptr, not a raw pointer to MTsolve's local matrix: if this
-// call times out from MTsolve's point of view (see qpSolveTimeoutS), the
+// coeff and done are shared_ptrs, not raw pointers to MTsolve's locals: if
+// this call times out from MTsolve's point of view (see qpSolveTimeoutS), the
 // thread is detached and kept running rather than joined, so it can outlive
-// the MTsolve stack frame that used to own coeff. A raw pointer there would
-// be a dangling write the moment OOQP eventually did return.
+// the MTsolve stack frame that used to own them. Raw pointers there would be
+// dangling writes the moment OOQP eventually did return. done is set true as
+// the last step, after coeff/traj_valid are written, so MTsolve's polling
+// loop only observes completion once those writes are visible to it.
 void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint qp,
-   QP_ineq_const ineq_qp, std::shared_ptr<Eigen::MatrixXd> coeff, std::vector<bool>* traj_valid){
+   QP_ineq_const ineq_qp, std::shared_ptr<Eigen::MatrixXd> coeff, std::vector<bool>* traj_valid,
+   std::shared_ptr<std::atomic<bool>> done){
 	const bool ignoreUnknownError = false;
     Eigen::VectorXd sol = Eigen::VectorXd::Zero(coeffNum);
 	Eigen::VectorXd g0 = Eigen::VectorXd::Zero(coeffNum);
@@ -307,6 +312,7 @@ void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint
 	for (int i =0;i<coeffNum;i++){
 		coeff->operator()(i,dimension)  = sol[i];
 	}
+	done->store(true);
 }
 
 Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
@@ -333,6 +339,13 @@ Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 	// spawned thread holds its own copy of the shared_ptr, keeping the matrix
 	// alive for as long as that thread runs, however long that ends up being.
 	auto coeff = std::make_shared<Eigen::MatrixXd>(Eigen::MatrixXd::Zero(coeffNum, dim));
+	// One completion flag per dimension, heap-allocated for the same reason as
+	// coeff above (a detached thread must be able to set it after MTsolve has
+	// already returned). Polled below instead of using boost::thread's
+	// chrono-based try_join_for, which pulls in libboost_chrono/libboost_system
+	// as an extra link dependency this project doesn't otherwise need --
+	// std::chrono/std::atomic/std::this_thread are header-only/standard-library.
+	std::vector<std::shared_ptr<std::atomic<bool>>> done(dim);
    //generate object function
    	Eigen::MatrixXd D = generateObjFun(minDeriv);
 	for (int j = 0; j < dim; j++){
@@ -342,16 +355,26 @@ Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 		// dimension that times out below (or genuinely fails) below isn't left
 		// stale-true from an earlier, unrelated solve.
 		traj_valid[j] = false;
-		threads.push_back(boost::thread(thread_QP, j,  D, coeffNum, qp,ineq_qp,coeff,&traj_valid));
+		done[j] = std::make_shared<std::atomic<bool>>(false);
+		threads.push_back(boost::thread(thread_QP, j,  D, coeffNum, qp,ineq_qp,coeff,&traj_valid,done[j]));
 	}
 	// Bounded join: OOQP occasionally fails to converge/terminate on a
 	// numerically tight problem (see the qpSolveTimeoutS member comment in
 	// QPpolyTraj.h). An unbounded join here previously hung the whole node
-	// forever with no further log output the moment that happened.
+	// forever with no further log output the moment that happened. Poll each
+	// dimension's completion flag with a short sleep instead of a blocking
+	// join call, so we can bound the wait ourselves.
 	static const char* kAxisName[4] = {"x", "y", "z", "yaw"};
+	const auto pollInterval = std::chrono::milliseconds(10);
 	for (size_t j = 0; j < threads.size(); j++) {
-		auto timeout = boost::chrono::duration<double>(qpSolveTimeoutS);
-		if (!threads[j].try_join_for(timeout)) {
+		auto deadline = std::chrono::steady_clock::now() +
+		                std::chrono::duration<double>(qpSolveTimeoutS);
+		while (!done[j]->load() && std::chrono::steady_clock::now() < deadline) {
+			std::this_thread::sleep_for(pollInterval);
+		}
+		if (done[j]->load()) {
+			threads[j].join(); // already finished -- returns immediately
+		} else {
 			const char* axisName = (j < 4) ? kAxisName[j] : "?";
 			std::cout << "[QP_TIMEOUT] OOQP did not return within " << qpSolveTimeoutS
 			          << "s on dim=" << j << " (" << axisName << ") -- treating as failed "
