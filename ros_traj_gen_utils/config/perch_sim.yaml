@@ -42,6 +42,9 @@ traj_exe:
     horiz_vel_limit: 0.0
     horiz_accel_limit: 0.0
     horiz_jerk_limit: 0.0
+    # Sampling step (s) for every per-vertex sampled inequality. See
+    # perch_config.yaml for the full explanation.
+    ineq_sample_dt: 0.05
     # --- Extrinsics (camera optical frame == body frame) ---
     # The dummy must use the SAME cam_translation (its base_link->camera offset)
     # so both agree on the world target.

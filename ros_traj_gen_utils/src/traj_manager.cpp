@@ -383,6 +383,12 @@ int main(int argc, char** argv)
 		getParamOr<double>("horiz_vel_limit", 0.0),
 		getParamOr<double>("horiz_accel_limit", 0.0),
 		getParamOr<double>("horiz_jerk_limit", 0.0));
+	//Sampling step (s) for every per-vertex sampled inequality (perch eq.(14)
+	//band, min-altitude, horizontal limits). Default coarsened from the
+	//library's old hardcoded 0.01 -- see TrajBase's ineqSampleDt member
+	//comment for why (row-count blowup from stacking multiple sampled boxes
+	//made OOQP/MA27 fail to factor or fail to converge).
+	qp_traj.setIneqSampleDt(getParamOr<double>("ineq_sample_dt", 0.05));
 	//These values of 5 means that for a 1.7m distance gives around 5/3.4 or 1.5 ish time allocated.
 	TrajBase * traj;
 	double dt =0.01; //Handles the timer speed

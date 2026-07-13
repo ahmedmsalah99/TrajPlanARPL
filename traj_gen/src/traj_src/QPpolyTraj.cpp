@@ -731,7 +731,7 @@ Eigen::MatrixXd QPpolyTraj::generateObjFun(int minDeriv)
 QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 {
 	std::cout << "entered genInEqConstraint " << std::endl;
-	double dt = 0.01; // Make a class member
+	double dt = ineqSampleDt;
 	int numConst =0;
     int coeffNum = (vertices.size() - 1) *  polyOrder;
 	QP_ineq_const  ineq_const;
@@ -1036,7 +1036,9 @@ QP_ineq_const QPpolyTraj::genInEqJointConstraint(){
 			//Count the number of inequality constraints you have
 			for(int j =0; j < vertices[i].ineq_constraint.size(); j++){
 				double toff = vertices[i].ineq_constraint[j].timeOffset;
-				numConst += (vertices[i].ineq_constraint[j].InEqDim(k)*toff/0.01+1);
+				// Must match genInEqConstraint()'s actual sampling step (ineqSampleDt),
+				// since genInEqConstraint(j) is what actually fills these rows below.
+				numConst += (vertices[i].ineq_constraint[j].InEqDim(k)*toff/ineqSampleDt+1);
 			}
 		}
 		if(add_ineq_constr.size()!=0){

@@ -586,14 +586,13 @@ void TrajBase::applyMinAltitude(){
 	// live start position from odom, or an intermediate waypoint) that may
 	// legitimately sit below the floor (a ground-level takeoff, a low perch/
 	// landing goal) -- constraining it too would make the QP infeasible on
-	// every solve. Pull the window in by one sample step (dt=0.01, matching
-	// genInEqConstraint) so BOTH endpoints of every segment are excluded,
-	// leaving the interior of the segment constrained.
-	const double kSampleDt = 0.01; // must match genInEqConstraint's dt
+	// every solve. Pull the window in by one sample step (ineqSampleDt,
+	// matching genInEqConstraint) so BOTH endpoints of every segment are
+	// excluded, leaving the interior of the segment constrained.
 	for(size_t i = 1; i < vertices.size(); i++){
 		waypoint_ineq_const c;
 		c.derivOrder = 0; // position
-		c.timeOffset = std::max(0.0, segmentTimes[i-1] - kSampleDt);
+		c.timeOffset = std::max(0.0, segmentTimes[i-1] - ineqSampleDt);
 		c.lower = Eigen::Vector4d::Constant(-kUnbounded);
 		c.upper = Eigen::Vector4d::Constant(kUnbounded);
 		c.upper(2) = -minAltitude;
@@ -632,7 +631,6 @@ void TrajBase::applyHorizontalLimits(){
 	// segment endpoints, which may carry their own equality constraints (e.g.
 	// the live start vertex's velocity/acceleration from odom) that this box
 	// could otherwise conflict with and make the QP infeasible on every solve.
-	const double kSampleDt = 0.01; // must match genInEqConstraint's dt
 
 	auto pushBox = [&](size_t i, int derivOrder, double limit, double window){
 		double boxLimit = limit * kInscribedSquareScale;
@@ -649,7 +647,7 @@ void TrajBase::applyHorizontalLimits(){
 	};
 
 	for(size_t i = 1; i < vertices.size(); i++){
-		double window = std::max(0.0, segmentTimes[i-1] - kSampleDt);
+		double window = std::max(0.0, segmentTimes[i-1] - ineqSampleDt);
 		if(horizVelLimit > 0.0){ pushBox(i, 1, horizVelLimit, window); }
 		if(horizAccelLimit > 0.0){ pushBox(i, 2, horizAccelLimit, window); }
 		if(horizJerkLimit > 0.0){ pushBox(i, 3, horizJerkLimit, window); }
@@ -658,6 +656,10 @@ void TrajBase::applyHorizontalLimits(){
 	          << " sqrt(ax^2+ay^2)<=" << horizAccelLimit
 	          << " sqrt(jx^2+jy^2)<=" << horizJerkLimit
 	          << " across " << (vertices.size() - 1) << " segment(s)" << std::endl;
+}
+
+void TrajBase::setIneqSampleDt(double dt){
+	ineqSampleDt = dt;
 }
 
 /*Virtual Stubs*/
