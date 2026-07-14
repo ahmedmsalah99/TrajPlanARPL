@@ -179,7 +179,7 @@ void init_params(){
 		vehicle_name+"/start_replan",
 		[](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
 		   std::shared_ptr<std_srvs::srv::Trigger::Response> response){
-			g_replanEnabled = true;
+			// g_replanEnabled = true;
 			response->success = true;
 			response->message = "Replanning enabled.";
 			std::cout << "[REPLAN_GATE] " << response->message << std::endl;

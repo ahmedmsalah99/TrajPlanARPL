@@ -163,8 +163,8 @@ class OffboardBridge(Node):
         msg = OffboardControlMode()
         msg.timestamp = self._now_us()
         msg.position = True
-        msg.velocity = False
-        msg.acceleration = False
+        msg.velocity = True
+        msg.acceleration = True
         msg.attitude = False
         msg.body_rate = False
         self.offboard_pub.publish(msg)
