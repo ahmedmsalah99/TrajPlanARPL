@@ -397,10 +397,14 @@ bool TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	finalAccel[0] = s3(0) * force - 9.81 * e3(0);
 	finalAccel[1] = s3(1) * force - 9.81 * e3(1);
 	finalAccel[2] = s3(2) * force - 9.81 * e3(2);
-	std::cout << "final acceleration " << finalAccel[0] << std::endl;
-	std::cout << "final acceleration " << finalAccel[1] << std::endl;
-	std::cout << "final acceleration " << finalAccel[2] << std::endl;
-	std::cout << "final acceleration " << finalAccel << std::endl;
+	// s3 here may differ from the "[DIAG] ... s3 (goal normal used)" log above --
+	// that one prints the raw value straight from H, BEFORE the upside-down guard
+	// (a few lines up) can overwrite it. This one prints whatever s3 actually went
+	// into finalAccel below, so the two together tell you whether the clamp fired.
+	std::cout << "[DIAG] calcPerchCond final s3 (post-clamp, actually used) = "
+	          << s3.transpose() << ", force=" << force << " -> finalAccel = ("
+	          << finalAccel[0] << ", " << finalAccel[1] << ", " << finalAccel[2] << ")"
+	          << std::endl;
 
 	// Reject up front if the perch physics (fixed by the target geometry and
 	// maxInclinationAccel/impactNormalVel/impactSlideVel) demand more horizontal
