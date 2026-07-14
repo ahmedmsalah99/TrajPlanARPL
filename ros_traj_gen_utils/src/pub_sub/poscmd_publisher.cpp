@@ -50,7 +50,7 @@ void poscmd_publisher::timerCallback(){
 		point.velocity = veloXYZ;
 		point.acceleration = accelXYZ;
 		point.jerk =  jerkXYZ;
-		point.yaw = 0;//pt(0,3);
+		point.yaw = pt(0,3);//pt(0,3);
 		point.yaw_dot = 0; // pt(1,3);
 		point.kx[0] = kx;
 		point.kv[0] = kv;
