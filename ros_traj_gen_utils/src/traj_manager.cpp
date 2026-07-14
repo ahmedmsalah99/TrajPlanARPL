@@ -5,6 +5,7 @@
 #include <cmath>
 #include <memory>
 #include <atomic>
+#include <fstream>
 #include <traj_gen/trajectory/Waypoint.h>
 #include <traj_gen/trajectory/QPpolyTraj.h>
 #include <traj_gen/traj_utils/polynomial.h>
@@ -76,6 +77,37 @@ double g_fov_coverage_fraction = 0.5;
 std::atomic<bool> g_replanEnabled{false};
 rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_start_replan_;
 rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_stop_replan_;
+
+// --- DEBUG (this branch only): plan-vs-actual comparison ---
+// Goal: capture what the trajectory ASSUMES will happen over time (a static
+// CSV dump of the frozen plan) alongside what ACTUALLY happens (a live CSV
+// of real vehicle state), so the two can be plotted against each other.
+// Replanning is deliberately left disabled (see start_replan below) -- this
+// is meant to isolate "does the vehicle track a single static plan" from
+// any replanning-related effects.
+//
+// Freeze: while replanning is off, the existing visual-target refresh loop
+// (see executeReplanTraj's disabled branch) keeps re-solving the initial
+// plan toward wherever the visual target currently is. Once that target
+// stops moving (holds steady within kFreezeStableTolM for
+// kFreezeStableTicks consecutive checks), stop re-solving and dump the
+// resulting plan's whole time profile to CSV.
+bool g_planFrozen = false;
+bool g_haveLastVisualTarget = false;
+Eigen::Matrix4d g_lastVisualTarget = Eigen::Matrix4d::Identity();
+int g_visualStableCount = 0;
+const int kFreezeStableTicks = 10;      // consecutive stable cadence ticks before freezing
+const double kFreezeStableTolM = 0.02;  // metres; position-only "unchanged" tolerance
+
+// Start/stop hooked onto the EXISTING start_replan/stop_replan services:
+// start_replan already fires exactly "when offboard is asked for" (that's
+// what offboard_bridge calls once it confirms OFFBOARD via VehicleStatus),
+// even with g_replanEnabled's assignment commented out -- the service call
+// itself still happens, so it's a convenient, already-wired trigger for
+// "start recording the real vehicle state now."
+bool g_recordingActual = false;
+double g_recordingStartTime = 0.0;
+std::ofstream g_actualCsv;
 
 // Helper to declare (once) and fetch a parameter with a default.
 template <typename T>
@@ -179,7 +211,24 @@ void init_params(){
 		vehicle_name+"/start_replan",
 		[](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
 		   std::shared_ptr<std_srvs::srv::Trigger::Response> response){
-			// g_replanEnabled = true;
+			// g_replanEnabled = true;  // replanning deliberately disabled for this debug capture
+			// DEBUG: this still fires exactly "when offboard is asked for" (offboard_bridge
+			// calls start_replan right after confirming OFFBOARD via VehicleStatus), so it's
+			// reused here as the trigger to start recording real vehicle state.
+			if(!g_recordingActual){
+				std::string path = getParamOr<std::string>("actual_csv_path", std::string("/tmp/actual_trajectory.csv"));
+				g_actualCsv.open(path, std::ios::out | std::ios::trunc);
+				if(g_actualCsv.is_open()){
+					g_actualCsv << "t,x,y,z,vx,vy,vz\n";
+					g_recordingStartTime = node->now().seconds();
+					g_recordingActual = true;
+					std::cout << "[PLAN_VS_ACTUAL] start_replan called -- recording actual "
+					          << "vehicle state to " << path << std::endl;
+				}
+				else{
+					std::cout << "[PLAN_VS_ACTUAL] FAILED to open " << path << " for writing" << std::endl;
+				}
+			}
 			response->success = true;
 			response->message = "Replanning enabled.";
 			std::cout << "[REPLAN_GATE] " << response->message << std::endl;
@@ -189,6 +238,12 @@ void init_params(){
 		[](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
 		   std::shared_ptr<std_srvs::srv::Trigger::Response> response){
 			g_replanEnabled = false;
+			if(g_recordingActual){
+				g_actualCsv.close();
+				g_recordingActual = false;
+				std::cout << "[PLAN_VS_ACTUAL] stop_replan called -- stopped recording "
+				          << "actual vehicle state." << std::endl;
+			}
 			response->success = true;
 			response->message = "Replanning disabled -- the last successfully "
 			                     "replanned trajectory keeps being published as-is.";
@@ -235,6 +290,18 @@ void init_params(){
 
 			odomListiner.outputListiner(odom, node);
 			aprilListen.updateOdom(odom);
+
+			// DEBUG: append real vehicle state while a recording session is active
+			// (see start_replan/stop_replan above), timestamped relative to when
+			// recording started so it lines up with the frozen plan's own t=0.
+			if(g_recordingActual && g_actualCsv.is_open()){
+				double t = node->now().seconds() - g_recordingStartTime;
+				g_actualCsv << t << "," << odom.pose.pose.position.x << ","
+				            << odom.pose.pose.position.y << "," << odom.pose.pose.position.z << ","
+				            << odom.twist.twist.linear.x << "," << odom.twist.twist.linear.y << ","
+				            << odom.twist.twist.linear.z << "\n";
+				g_actualCsv.flush();
+			}
 			});
 	subMap = node->create_subscription<ros_traj_gen_utils::msg::CuboidMap>(
 		"/vox_blox_map/graph", 10,
@@ -263,6 +330,31 @@ void visualize_paths(TrajBase * traj ){
 		msgQP = ros_traj_utils::encodePath(2,traj,"world");
 		visual_acc_pub_->publish(msgQP);
 	}
+}
+
+// DEBUG (this branch only): dump the frozen plan's whole time profile
+// (position + velocity, sampled at kPlanCsvDt from t=0 to the plan's total
+// duration) to CSV, so it can be plotted against the recorded actual
+// vehicle state.
+void dumpPlannedTrajectoryCsv(TrajBase * traj_use){
+	std::string path = getParamOr<std::string>("planned_csv_path", std::string("/tmp/planned_trajectory.csv"));
+	std::ofstream f(path, std::ios::out | std::ios::trunc);
+	if(!f.is_open()){
+		std::cout << "[PLAN_VS_ACTUAL] FAILED to open " << path << " for writing" << std::endl;
+		return;
+	}
+	f << "t,x,y,z,vx,vy,vz\n";
+	double totalTime = 0.0;
+	for(size_t i = 0; i < traj_use->segmentTimes.size(); i++){ totalTime += traj_use->segmentTimes[i]; }
+	const double kPlanCsvDt = 0.02;
+	for(double t = 0.0; t <= totalTime + 1e-9; t += kPlanCsvDt){
+		Eigen::MatrixXd pt = traj_use->evalTraj(t);
+		f << t << "," << pt(0,0) << "," << pt(0,1) << "," << pt(0,2) << ","
+		  << pt(1,0) << "," << pt(1,1) << "," << pt(1,2) << "\n";
+	}
+	f.close();
+	std::cout << "[PLAN_VS_ACTUAL] wrote planned trajectory (" << totalTime
+	          << "s, dt=" << kPlanCsvDt << ") to " << path << std::endl;
 }
 
 void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * controller, TrajBase * traj){
@@ -397,7 +489,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 		else{
 			// Pinned at 0 while disabled -- see the member comment above.
 			time_plan = 0.0;
-			if(useVisual){
+			if(useVisual && !g_planFrozen){
 				// Not flying for real yet (still waiting on start_replan, e.g. for
 				// offboard to be confirmed): keep the INITIAL plan aimed at wherever
 				// the visual target currently is by re-solving it fresh (from the
@@ -409,16 +501,43 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 				if(visual_refresh_time >= replan_time){
 					Eigen::Matrix4d H;
 					if(aprilListen.getLanding(&H)){
-						bool redo_ok = replanner.initialPlan(3, H);
-						if(redo_ok){
-							traj_use = replanner.getTraj();
-							controller->startFlight(traj_use);
-							visualize_paths(traj_use);
+						// DEBUG: has the visual target held steady (within
+						// kFreezeStableTolM) since the last check? Once it has for
+						// kFreezeStableTicks consecutive checks, freeze -- stop
+						// re-solving and dump the current (now-stable) plan to CSV --
+						// instead of re-solving toward this same, unchanged target
+						// again.
+						if(g_haveLastVisualTarget){
+							double posDelta = (H.block<3,1>(0,3) - g_lastVisualTarget.block<3,1>(0,3)).norm();
+							if(posDelta < kFreezeStableTolM){
+								g_visualStableCount++;
+							}
+							else{
+								g_visualStableCount = 0;
+							}
+						}
+						g_lastVisualTarget = H;
+						g_haveLastVisualTarget = true;
+
+						if(g_visualStableCount >= kFreezeStableTicks){
+							std::cout << "[PLAN_VS_ACTUAL] visual target held steady for "
+							          << kFreezeStableTicks << " checks -- freezing the plan."
+							          << std::endl;
+							g_planFrozen = true;
+							dumpPlannedTrajectoryCsv(traj_use);
 						}
 						else{
-							std::cout << "[VISUAL_TARGET] initial plan toward the current "
-							          << "target FAILED -- keeping the previous plan running."
-							          << std::endl;
+							bool redo_ok = replanner.initialPlan(3, H);
+							if(redo_ok){
+								traj_use = replanner.getTraj();
+								controller->startFlight(traj_use);
+								visualize_paths(traj_use);
+							}
+							else{
+								std::cout << "[VISUAL_TARGET] initial plan toward the current "
+								          << "target FAILED -- keeping the previous plan running."
+								          << std::endl;
+							}
 						}
 					}
 					visual_refresh_time = 0.0;
