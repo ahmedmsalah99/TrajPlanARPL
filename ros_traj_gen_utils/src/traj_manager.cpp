@@ -212,7 +212,7 @@ void init_params(){
 		vehicle_name+"/start_replan",
 		[](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
 		   std::shared_ptr<std_srvs::srv::Trigger::Response> response){
-			// g_replanEnabled = true;  // replanning deliberately disabled for this debug capture
+			g_replanEnabled = true;  // replanning deliberately disabled for this debug capture
 			// DEBUG: this still fires exactly "when offboard is asked for" (offboard_bridge
 			// calls start_replan right after confirming OFFBOARD via VehicleStatus), so it's
 			// reused here as the trigger to start recording real vehicle state.
