@@ -6,6 +6,7 @@
 #include <memory>
 #include <atomic>
 #include <fstream>
+#include <iomanip>
 #include <traj_gen/trajectory/Waypoint.h>
 #include <traj_gen/trajectory/QPpolyTraj.h>
 #include <traj_gen/traj_utils/polynomial.h>
@@ -219,8 +220,12 @@ void init_params(){
 				std::string path = getParamOr<std::string>("actual_csv_path", std::string("/tmp/actual_trajectory.csv"));
 				g_actualCsv.open(path, std::ios::out | std::ios::trunc);
 				if(g_actualCsv.is_open()){
-					g_actualCsv << "t,x,y,z,vx,vy,vz\n";
 					g_recordingStartTime = node->now().seconds();
+					// t0_abs lets plot_plan_vs_actual.py compute the exact offset between
+					// this recording's start and the planned CSV's freeze instant, instead
+					// of requiring a manually-guessed --shift.
+					g_actualCsv << "# t0_abs," << std::setprecision(17) << g_recordingStartTime << "\n";
+					g_actualCsv << "t,x,y,z,vx,vy,vz\n";
 					g_recordingActual = true;
 					std::cout << "[PLAN_VS_ACTUAL] start_replan called -- recording actual "
 					          << "vehicle state to " << path << std::endl;
@@ -336,13 +341,17 @@ void visualize_paths(TrajBase * traj ){
 // (position + velocity, sampled at kPlanCsvDt from t=0 to the plan's total
 // duration) to CSV, so it can be plotted against the recorded actual
 // vehicle state.
-void dumpPlannedTrajectoryCsv(TrajBase * traj_use){
+void dumpPlannedTrajectoryCsv(TrajBase * traj_use, double freezeAbsTime){
 	std::string path = getParamOr<std::string>("planned_csv_path", std::string("/tmp/planned_trajectory.csv"));
 	std::ofstream f(path, std::ios::out | std::ios::trunc);
 	if(!f.is_open()){
 		std::cout << "[PLAN_VS_ACTUAL] FAILED to open " << path << " for writing" << std::endl;
 		return;
 	}
+	// t0_abs lets plot_plan_vs_actual.py compute the exact offset between this
+	// freeze instant and the actual recording's start, instead of requiring a
+	// manually-guessed --shift.
+	f << "# t0_abs," << std::setprecision(17) << freezeAbsTime << "\n";
 	f << "t,x,y,z,vx,vy,vz\n";
 	double totalTime = 0.0;
 	for(size_t i = 0; i < traj_use->segmentTimes.size(); i++){ totalTime += traj_use->segmentTimes[i]; }
@@ -524,7 +533,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 							          << kFreezeStableTicks << " checks -- freezing the plan."
 							          << std::endl;
 							g_planFrozen = true;
-							dumpPlannedTrajectoryCsv(traj_use);
+							dumpPlannedTrajectoryCsv(traj_use, node->now().seconds());
 						}
 						else{
 							bool redo_ok = replanner.initialPlan(3, H);
