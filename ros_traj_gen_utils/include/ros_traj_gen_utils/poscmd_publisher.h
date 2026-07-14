@@ -42,6 +42,15 @@ static std::vector<quadrotor_msgs::msg::PositionCommand>  arplCMDlist(double dt,
 
 void startFlight(TrajBase * traj);
 
+// Real elapsed time (s) since the currently-committed trajectory's t=0, i.e.
+// since startFlight() was last called -- the SAME clock timerCallback() uses
+// (traj_time = now-begin) to sample currTraj and actually publish
+// PositionCommands. This is the authoritative "how far along the trajectory
+// the vehicle is actually being commanded right now"; callers computing
+// their own independent elapsed-time estimate for replan()'s t_elap can
+// silently drift from what's really being flown.
+double getTrajTime();
+
 void setEND();
 //Timer Callback
 void timerCallback();

@@ -367,11 +367,24 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 			if (time_plan >=replan_time){
 				//std::cout << "replan start" <<std::endl;
 				double replan_timer = node->now().seconds() ;
+				// replan()'s t_elap must be "how far past the CURRENTLY-COMMITTED
+				// trajectory's t=0 are we right now" -- i.e. the same clock
+				// poscmd_publisher's timerCallback uses (traj_time = now-begin,
+				// reset every startFlight() call) to actually sample and publish
+				// PositionCommands, NOT this loop's own independently-tracked
+				// time_plan. startFlight() gets called from several places (the
+				// initial plan, the visual-target refresh below, and replan()
+				// itself), so time_plan and poscmd_publisher's real clock can end
+				// up out of sync -- passing time_plan here made replan() evaluate
+				// the wrong point on the currently-flying trajectory, producing a
+				// visible discontinuity the moment the replanned result was
+				// committed.
+				double realTrajTime = controller->getTrajTime();
 				if(useVisual){
 					Eigen::Matrix4d H;
 					if(aprilListen.getLanding(&H)){
 						// std::cout << "[DIAG] getLanding OK, target H=\n" << H << std::endl;
-						replan_success = replanner.replan(4,time_plan,g_replan_t_off,H);
+						replan_success = replanner.replan(4,realTrajTime,g_replan_t_off,H);
 					}
 					else{
 						std::cout << "[DIAG] getLanding FAILED (tag not consumed; "
@@ -379,7 +392,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 					}
 				}
 				else{
-					replan_success = replanner.replan(4, time_plan, g_replan_t_off);
+					replan_success = replanner.replan(4, realTrajTime, g_replan_t_off);
 				}
 				//std::cout << "replan end" <<std::endl;
 				if (replan_success){
