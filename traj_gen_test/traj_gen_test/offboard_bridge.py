@@ -1,29 +1,39 @@
 #!/usr/bin/env python3
-"""PX4 offboard bridge: relays the planner's trajectory command to PX4.
+"""PX4 offboard bridge: arms the offboard sequence and hands off the actual
+setpoint stream to ros_traj_gen_utils' so3_control_node.
 
-Subscribes to the planner's quadrotor_msgs/PositionCommand (published by
-ros_traj_gen_utils' poscmd_publisher on <device>/position_cmd) and republishes
-it as a px4_msgs/TrajectorySetpoint on /fmu/in/trajectory_setpoint, alongside
-the px4_msgs/OffboardControlMode heartbeat PX4 requires both to enter and to
-remain in offboard mode.
+This node does NOT publish px4_msgs/OffboardControlMode or
+px4_msgs/TrajectorySetpoint itself -- that used to be a direct
+PositionCommand -> TrajectorySetpoint relay (position/velocity/acceleration
+setpoints, tracked by PX4's own outer position-control loop). It's now
+so3_control_node's job instead: it converts the same PositionCommand
+(plus vehicle_odometry) into a body-rate + thrust command and publishes its
+own OffboardControlMode(body_rate=true) heartbeat + px4_msgs/
+VehicleRatesSetpoint directly, bypassing PX4's outer position/attitude loops
+entirely for tighter terminal tracking (needed for perch approaches). PX4
+only accepts one consistent OffboardControlMode declaration at a time, so
+these two nodes must never stream simultaneously -- this bridge now owns
+telling so3_control_node when to start/stop via its enable_rate_control/
+disable_rate_control services, instead of streaming anything to PX4 itself.
 
-The stream (heartbeat + setpoint relay) does NOT start at node startup. PX4
-only allows entering OFFBOARD once a valid stream is already flowing -- so if
-an RC switch or QGC mode selector is already parked on Offboard when the
-stream begins, PX4 grants that pending request the instant it becomes
-possible, with no explicit command from this node. That is a surprise mode
-switch at whatever moment the bridge happens to start, not something the
-operator deliberately asked for right then.
+The stream does NOT start at node startup. PX4 only allows entering OFFBOARD
+once a valid stream is already flowing -- so if an RC switch or QGC mode
+selector is already parked on Offboard when the stream begins, PX4 grants
+that pending request the instant it becomes possible, with no explicit
+command from this node. That is a surprise mode switch at whatever moment
+the bridge happens to start, not something the operator deliberately asked
+for right then.
 
 Instead, the stream is gated behind the enable_offboard/disable_offboard
-services (std_srvs/Trigger). Calling enable_offboard starts the heartbeat +
-setpoint relay, waits offboard_prime_s for the stream to establish (PX4's own
-precondition for entering offboard), then sends a single explicit
-px4_msgs/VehicleCommand (DO_SET_MODE -> OFFBOARD) -- mirroring PX4's own
-recommended stream-first-then-switch sequence, just moved from "whatever the
-RC switch happens to be doing" to an explicit, single, timed operator action.
-disable_offboard stops the stream again (PX4 falls out of offboard on its own
-once the stream lapses).
+services (std_srvs/Trigger). Calling enable_offboard calls
+so3_control_node's enable_rate_control (starting its heartbeat), waits
+offboard_prime_s for the stream to establish (PX4's own precondition for
+entering offboard), then sends a single explicit px4_msgs/VehicleCommand
+(DO_SET_MODE -> OFFBOARD) -- mirroring PX4's own recommended
+stream-first-then-switch sequence, just moved from "whatever the RC switch
+happens to be doing" to an explicit, single, timed operator action.
+disable_offboard calls disable_rate_control to stop the stream again (PX4
+falls out of offboard on its own once the stream lapses).
 
 Once OFFBOARD is confirmed active (by watching px4_msgs/VehicleStatus.nav_state,
 not just by having sent the mode-switch command -- PX4 can reject/delay it),
@@ -55,7 +65,7 @@ from geometry_msgs.msg import PoseStamped
 from std_srvs.srv import Trigger
 
 from quadrotor_msgs.msg import PositionCommand
-from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint, VehicleCommand, VehicleStatus
+from px4_msgs.msg import VehicleCommand, VehicleStatus
 
 
 class OffboardBridge(Node):
@@ -63,9 +73,11 @@ class OffboardBridge(Node):
         super().__init__('px4_offboard_bridge')
 
         self.declare_parameter('device', '/quadrotor')
-        # Rate to publish the OffboardControlMode heartbeat at. PX4 requires
-        # this at a minimum of ~2 Hz to stay in offboard mode; default is
-        # comfortably above that.
+        # Rate this node runs its own offboard-sequence timer (dummy-waypoint
+        # publish, mode-switch/replan-start timing) at. so3_control_node
+        # publishes the actual OffboardControlMode heartbeat now, which PX4
+        # requires at a minimum of ~2 Hz to stay in offboard mode -- keep
+        # so3_control_node's control_rate_hz comfortably above that too.
         self.declare_parameter('offboard_rate_hz', 50.0)
         # If no PositionCommand has been received in this long, log a
         # (throttled) warning instead of silently going stale. Informational
@@ -95,10 +107,6 @@ class OffboardBridge(Node):
                               reliability=ReliabilityPolicy.BEST_EFFORT,
                               history=HistoryPolicy.KEEP_LAST)
 
-        self.offboard_pub = self.create_publisher(
-            OffboardControlMode, '/fmu/in/offboard_control_mode', 10)
-        self.setpoint_pub = self.create_publisher(
-            TrajectorySetpoint, '/fmu/in/trajectory_setpoint', 10)
         self.vehicle_command_pub = self.create_publisher(
             VehicleCommand, '/fmu/in/vehicle_command', 10)
         self.wp_pub = self.create_publisher(Path, device + '/waypoints', 10)
@@ -114,6 +122,13 @@ class OffboardBridge(Node):
         self.start_replan_client = self.create_client(Trigger, device + '/start_replan')
         self.stop_replan_client = self.create_client(Trigger, device + '/stop_replan')
 
+        # so3_control_node's own streaming gate (ros_traj_gen_utils/src/
+        # control/so3_control_node.cpp) -- owns the actual OffboardControlMode
+        # heartbeat + VehicleRatesSetpoint stream to PX4; this bridge only
+        # tells it when to start/stop.
+        self.enable_rate_control_client = self.create_client(Trigger, device + '/enable_rate_control')
+        self.disable_rate_control_client = self.create_client(Trigger, device + '/disable_rate_control')
+
         self._last_cmd_time = None
         self._warned_stale = False
         self._nav_state = None
@@ -126,7 +141,7 @@ class OffboardBridge(Node):
         self._replan_started = False
         self._warned_confirm_slow = False
 
-        self.create_timer(1.0 / offboard_rate_hz, self._publish_offboard_heartbeat)
+        self.create_timer(1.0 / offboard_rate_hz, self._offboard_sequence_tick)
         # Independent watchdog timer for the staleness warning, decoupled from
         # both the heartbeat rate and the (external) command rate.
         self.create_timer(0.25, self._check_stale)
@@ -137,19 +152,24 @@ class OffboardBridge(Node):
             Trigger, 'disable_offboard', self._on_disable_offboard)
 
         self.get_logger().info(
-            'PX4 offboard bridge up: %s/position_cmd -> /fmu/in/trajectory_setpoint, '
-            'heartbeat -> /fmu/in/offboard_control_mode @ %.1f Hz. '
-            'Stream is OFF until the enable_offboard service is called '
-            '(disable_offboard stops it and calls %s/stop_replan). Once OFFBOARD is '
-            'confirmed via VehicleStatus, %s/start_replan is called. Arming is NOT '
-            'handled here.'
-            % (device, offboard_rate_hz, device, device))
+            'PX4 offboard bridge up: %s/position_cmd is relayed by so3_control_node '
+            '(its own OffboardControlMode(body_rate=true) heartbeat + '
+            'VehicleRatesSetpoint stream), not this node. '
+            'Stream is OFF until the enable_offboard service is called -- that calls '
+            'so3_control_node\'s enable_rate_control '
+            '(disable_offboard calls disable_rate_control and %s/stop_replan). Once '
+            'OFFBOARD is confirmed via VehicleStatus, %s/start_replan is called. '
+            'Arming is NOT handled here.'
+            % (device, device, device))
 
     def _now_us(self):
         # PX4 timestamps are microseconds.
         return int(self.get_clock().now().nanoseconds / 1000)
 
-    def _publish_offboard_heartbeat(self):
+    def _offboard_sequence_tick(self):
+        # Unconditional: feeds traj_manager.cpp's waypoint listener, which is
+        # what actually triggers/re-triggers planning -- unrelated to
+        # offboard mode itself, unchanged by the so3_control_node handoff.
         path = Path()
         path.header.stamp = self.get_clock().now().to_msg()
         path.header.frame_id = 'world'
@@ -160,15 +180,10 @@ class OffboardBridge(Node):
         if not self._streaming:
             return
 
-        msg = OffboardControlMode()
-        msg.timestamp = self._now_us()
-        msg.position = True
-        msg.velocity = True
-        msg.acceleration = True
-        msg.attitude = False
-        msg.body_rate = False
-        self.offboard_pub.publish(msg)
-
+        # so3_control_node owns the actual OffboardControlMode heartbeat and
+        # VehicleRatesSetpoint stream now (enable_rate_control was called
+        # when _streaming flipped true, in _on_enable_offboard) -- this tick
+        # just times the mode-switch/replan-start sequence around it.
         if not self._mode_cmd_sent:
             elapsed_s = (self.get_clock().now().nanoseconds - self._streaming_since) / 1e9
             if elapsed_s >= self.offboard_prime_s:
@@ -176,7 +191,7 @@ class OffboardBridge(Node):
                 self._mode_cmd_sent = True
                 self._mode_cmd_sent_at = self.get_clock().now().nanoseconds
                 self.get_logger().info(
-                    'Stream established for %.2fs, requesting OFFBOARD mode switch.'
+                    'so3_control_node streaming for %.2fs, requesting OFFBOARD mode switch.'
                     % elapsed_s)
         elif not self._replan_started:
             self._check_offboard_confirmed_and_start_replan()
@@ -213,35 +228,19 @@ class OffboardBridge(Node):
             if not self._warned_stale:
                 self.get_logger().warn(
                     'No PositionCommand received in %.2fs (timeout=%.2fs) -- '
-                    'trajectory_setpoint is no longer being updated.'
+                    'so3_control_node has nothing fresh to compute a rate '
+                    'setpoint from.'
                     % (age_s, self.command_timeout_s))
                 self._warned_stale = True
         else:
             self._warned_stale = False
 
     def _on_position_cmd(self, msg: PositionCommand):
+        # Only tracked for the enable_offboard prerequisite check and the
+        # staleness warning above -- so3_control_node has its own
+        # subscription to this same topic and computes the actual rate
+        # setpoint itself; this bridge no longer relays anything to PX4.
         self._last_cmd_time = self.get_clock().now().nanoseconds
-
-        if not self._streaming:
-            return
-
-        sp = TrajectorySetpoint()
-        sp.timestamp = self._now_us()
-        sp.position[0] = msg.position.x
-        sp.position[1] = msg.position.y
-        sp.position[2] = msg.position.z
-        sp.velocity[0] = msg.velocity.x
-        sp.velocity[1] = msg.velocity.y
-        sp.velocity[2] = msg.velocity.z
-        sp.acceleration[0] = msg.acceleration.x
-        sp.acceleration[1] = msg.acceleration.y
-        sp.acceleration[2] = msg.acceleration.z
-        sp.jerk[0] = msg.jerk.x
-        sp.jerk[1] = msg.jerk.y
-        sp.jerk[2] = msg.jerk.z
-        sp.yaw = msg.yaw
-        sp.yawspeed = msg.yaw_dot
-        self.setpoint_pub.publish(sp)
 
     def _send_offboard_mode_command(self):
         # DO_SET_MODE(base_mode=CUSTOM, custom_main_mode=OFFBOARD), the same
@@ -279,19 +278,31 @@ class OffboardBridge(Node):
                 % (age_s, self.command_timeout_s))
             return response
 
+        if not self.enable_rate_control_client.service_is_ready():
+            response.success = False
+            response.message = (
+                'so3_control_node\'s enable_rate_control service is not available -- '
+                'refusing to enable (there would be no OffboardControlMode heartbeat '
+                'at all without it). Is so3_control_node running?')
+            self.get_logger().error(response.message)
+            return response
+
         self._streaming = True
         self._streaming_since = self.get_clock().now().nanoseconds
         self._mode_cmd_sent = False
         self._mode_cmd_sent_at = None
         self._replan_started = False
         self._warned_confirm_slow = False
+        self.enable_rate_control_client.call_async(Trigger.Request())
         response.success = True
         response.message = (
-            'Streaming started, requesting OFFBOARD in %.2fs.' % self.offboard_prime_s)
+            'so3_control_node streaming started, requesting OFFBOARD in %.2fs.'
+            % self.offboard_prime_s)
         self.get_logger().info(response.message)
         return response
 
     def _on_disable_offboard(self, request, response):
+        was_streaming = self._streaming
         self._streaming = False
         self._streaming_since = None
         self._mode_cmd_sent = False
@@ -299,6 +310,13 @@ class OffboardBridge(Node):
         was_replanning = self._replan_started
         self._replan_started = False
         self._warned_confirm_slow = False
+        if was_streaming:
+            if self.disable_rate_control_client.service_is_ready():
+                self.disable_rate_control_client.call_async(Trigger.Request())
+            else:
+                self.get_logger().warn(
+                    'disable_rate_control service not available -- '
+                    'so3_control_node may not be running.')
         if was_replanning:
             if self.stop_replan_client.service_is_ready():
                 self.stop_replan_client.call_async(Trigger.Request())
