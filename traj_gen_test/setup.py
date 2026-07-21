@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'dummy_publisher = traj_gen_test.dummy_publisher:main',
+            'offboard_bridge = traj_gen_test.offboard_bridge:main',
         ],
     },
 )
