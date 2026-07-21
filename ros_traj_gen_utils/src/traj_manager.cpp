@@ -350,7 +350,21 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	double visual_refresh_time = 0;
 	bool replanWasEnabled = false;
 	std::cout << "TIME Start Flight " << node->now().seconds() <<std::endl;
-	while(controller->getState() != HOVER && rclcpp::ok()){
+	// Unlike executeOneShotTraj, this is a continuous tracking mode (replan()
+	// or the visual-target re-solve below keep refreshing the flight
+	// indefinitely) -- there is no natural "done" state. poscmd_publisher
+	// flips to HOVER purely because the CURRENTLY loaded solve's own nominal
+	// duration elapsed, which happens routinely between refresh cycles; it
+	// does not mean the mission is over. Exiting on that used to call
+	// setEND() (killing the PositionCommand stream entirely) and return to
+	// main(), which then restarted the whole flight from scratch via the
+	// waypoint-triggered re-entry into this function -- an unnecessary full
+	// restart (and, worse, a real PositionCommand gap while armed) every
+	// time a refresh cycle didn't land before the previous solve's duration
+	// ran out. Only actually stop on node shutdown; poscmd_publisher keeps
+	// publishing (holding the last commanded state) through any brief HOVER
+	// gap between refreshes on its own.
+	while(rclcpp::ok()){
 		rclcpp::sleep_for(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(replan_time*0.1)));
 		//pubTarget.publish(target);
 		rclcpp::spin_some(node);
