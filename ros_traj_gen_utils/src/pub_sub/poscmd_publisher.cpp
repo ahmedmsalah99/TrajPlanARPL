@@ -13,9 +13,8 @@ poscmd_publisher::poscmd_publisher(rclcpp::Node::SharedPtr node, std::string cmd
 	: node_(node), begin(node->now()){
 	pubCMD = node_->create_publisher<quadrotor_msgs::msg::PositionCommand>(cmd_topic, 10);
 	// [THRUST_CHECK] required thrust magnitude implied by the commanded
-	// acceleration, plus the commanded yaw rate -- see timerCallback().
-	// data = [thrust_n, yaw_rate_rad_s].
-	pubThrust = node_->create_publisher<std_msgs::msg::Float64MultiArray>("thrust_command", 10);
+	// acceleration -- see timerCallback().
+	pubThrust = node_->create_publisher<std_msgs::msg::Float64>("thrust_command", 10);
 	state =END;
 	timer_ = node_->create_wall_timer(
 		std::chrono::duration<double>(dt),
@@ -58,13 +57,11 @@ void poscmd_publisher::timerCallback(){
 		// acceleration only -- PX4's own position/velocity error feedback on
 		// top of it can only push the real requirement higher, so this is a
 		// conservative lower bound on what thrust is actually needed.
-		// Yaw rate (pt(1,3)) is the trajectory's own computed value, not
-		// point.yaw_dot below (which is currently hardcoded to 0).
 		Eigen::Vector3d thrustAccelCmd(accelXYZ.x, accelXYZ.y, accelXYZ.z);
 		Eigen::Vector3d thrustGWorld(0.0, 0.0, kGravity);
 		Eigen::Vector3d thrustVec = kQuadMassKg * (thrustAccelCmd - thrustGWorld);
-		std_msgs::msg::Float64MultiArray thrustMsg;
-		thrustMsg.data = {thrustVec.norm(), pt(1,3)};
+		std_msgs::msg::Float64 thrustMsg;
+		thrustMsg.data = thrustVec.norm();
 		pubThrust->publish(thrustMsg);
 
 		geometry_msgs::msg::Vector3 jerkXYZ;
@@ -76,7 +73,7 @@ void poscmd_publisher::timerCallback(){
 		point.acceleration = accelXYZ;
 		point.jerk =  jerkXYZ;
 		point.yaw = 0;//pt(0,3);
-		point.yaw_dot = 0; // pt(1,3);
+		point.yaw_dot = pt(1,3);
 		point.kx[0] = kx;
 		point.kv[0] = kv;
 		point.kx[1] = kx;
