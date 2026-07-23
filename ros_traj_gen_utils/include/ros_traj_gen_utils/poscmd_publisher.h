@@ -9,6 +9,7 @@
 #include <quadrotor_msgs/msg/position_command.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
+#include <std_msgs/msg/float64.hpp>
 #include <traj_gen/trajectory/TrajBase.h>
 
 #include <string>
@@ -23,6 +24,7 @@ volatile int count = 0;
 quadrotor_msgs::msg::PositionCommand finalState;
 rclcpp::Node::SharedPtr node_;
 rclcpp::Publisher<quadrotor_msgs::msg::PositionCommand>::SharedPtr pubCMD;
+rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr pubThrust;
 rclcpp::TimerBase::SharedPtr timer_;
 rclcpp::Time begin;
 void setNewFlightPath(TrajBase * traj);
