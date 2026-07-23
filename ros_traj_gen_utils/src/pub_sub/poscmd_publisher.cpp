@@ -13,17 +13,9 @@ poscmd_publisher::poscmd_publisher(rclcpp::Node::SharedPtr node, std::string cmd
 	: node_(node), begin(node->now()){
 	pubCMD = node_->create_publisher<quadrotor_msgs::msg::PositionCommand>(cmd_topic, 10);
 	// [THRUST_CHECK] required thrust magnitude implied by the commanded
-	// acceleration -- see timerCallback(). Topic derived from cmd_topic
-	// (.../position_cmd -> .../required_thrust_n) to match this repo's
-	// vehicle_name-prefixed topic convention.
-	std::string thrust_topic = cmd_topic;
-	const std::string suffix = "/position_cmd";
-	if(thrust_topic.size() > suffix.size() &&
-	   thrust_topic.compare(thrust_topic.size() - suffix.size(), suffix.size(), suffix) == 0){
-		thrust_topic = thrust_topic.substr(0, thrust_topic.size() - suffix.size());
-	}
-	thrust_topic += "/required_thrust_n";
-	pubThrust = node_->create_publisher<std_msgs::msg::Float64>(thrust_topic, 10);
+	// acceleration, plus the commanded yaw rate -- see timerCallback().
+	// data = [thrust_n, yaw_rate_rad_s].
+	pubThrust = node_->create_publisher<std_msgs::msg::Float64MultiArray>("thrust_command", 10);
 	state =END;
 	timer_ = node_->create_wall_timer(
 		std::chrono::duration<double>(dt),
@@ -66,11 +58,13 @@ void poscmd_publisher::timerCallback(){
 		// acceleration only -- PX4's own position/velocity error feedback on
 		// top of it can only push the real requirement higher, so this is a
 		// conservative lower bound on what thrust is actually needed.
+		// Yaw rate (pt(1,3)) is the trajectory's own computed value, not
+		// point.yaw_dot below (which is currently hardcoded to 0).
 		Eigen::Vector3d thrustAccelCmd(accelXYZ.x, accelXYZ.y, accelXYZ.z);
 		Eigen::Vector3d thrustGWorld(0.0, 0.0, kGravity);
 		Eigen::Vector3d thrustVec = kQuadMassKg * (thrustAccelCmd - thrustGWorld);
-		std_msgs::msg::Float64 thrustMsg;
-		thrustMsg.data = thrustVec.norm();
+		std_msgs::msg::Float64MultiArray thrustMsg;
+		thrustMsg.data = {thrustVec.norm(), pt(1,3)};
 		pubThrust->publish(thrustMsg);
 
 		geometry_msgs::msg::Vector3 jerkXYZ;
