@@ -269,6 +269,7 @@ void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * cont
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, false);
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
 	bool initial_ok;
+	double t_plan_start = node->now().seconds();
 	if(usePerch){
 		std::cout << target <<std::endl;
 		initial_ok = replanner.initialPlan(3, target);
@@ -276,6 +277,8 @@ void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * cont
 	else{
 		initial_ok = replanner.initialPlan(4);
 	}
+	std::cout << "[TIMING] initial plan (executeOneShotTraj) took "
+	          << (node->now().seconds() - t_plan_start) << "s, ok=" << initial_ok << std::endl;
 	if(!initial_ok){
 		std::cout << "[INITIAL_PLAN] FAILED -- not publishing/commanding this trajectory." << std::endl;
 		controller->setEND();
@@ -307,12 +310,15 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	replanner.setFOVEnable(g_fov_enable);
 	replanner.setFOVCoverageFraction(g_fov_coverage_fraction);
 	bool initial_ok;
+	double t_plan_start = node->now().seconds();
 	if(usePerch){
 		initial_ok = replanner.initialPlan(3, target);
 	}
 	else{
 		initial_ok = replanner.initialPlan(4);
 	}
+	std::cout << "[TIMING] initial plan (executeReplanTraj) took "
+	          << (node->now().seconds() - t_plan_start) << "s, ok=" << initial_ok << std::endl;
 	if(!initial_ok){
 		std::cout << "[INITIAL_PLAN] FAILED -- not publishing/commanding this trajectory." << std::endl;
 		controller->setEND();
@@ -344,7 +350,21 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	double visual_refresh_time = 0;
 	bool replanWasEnabled = false;
 	std::cout << "TIME Start Flight " << node->now().seconds() <<std::endl;
-	while(controller->getState() != HOVER && rclcpp::ok()){
+	// Unlike executeOneShotTraj, this is a continuous tracking mode (replan()
+	// or the visual-target re-solve below keep refreshing the flight
+	// indefinitely) -- there is no natural "done" state. poscmd_publisher
+	// flips to HOVER purely because the CURRENTLY loaded solve's own nominal
+	// duration elapsed, which happens routinely between refresh cycles; it
+	// does not mean the mission is over. Exiting on that used to call
+	// setEND() (killing the PositionCommand stream entirely) and return to
+	// main(), which then restarted the whole flight from scratch via the
+	// waypoint-triggered re-entry into this function -- an unnecessary full
+	// restart (and, worse, a real PositionCommand gap while armed) every
+	// time a refresh cycle didn't land before the previous solve's duration
+	// ran out. Only actually stop on node shutdown; poscmd_publisher keeps
+	// publishing (holding the last commanded state) through any brief HOVER
+	// gap between refreshes on its own.
+	while(rclcpp::ok()){
 		rclcpp::sleep_for(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(replan_time*0.1)));
 		//pubTarget.publish(target);
 		rclcpp::spin_some(node);
@@ -390,7 +410,8 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 					visualize_paths(traj_use);
 				}
 				double replan_timer_end =  node->now().seconds() ;
-				// std::cout << "Time ELAPSED " <<replan_timer_end-replan_timer <<std::endl;
+				std::cout << "[TIMING] replan() took " << (replan_timer_end-replan_timer)
+				          << "s, ok=" << replan_success << std::endl;
 				time_plan = 0.0;
 			}
 		}
@@ -409,7 +430,11 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 				if(visual_refresh_time >= replan_time){
 					Eigen::Matrix4d H;
 					if(aprilListen.getLanding(&H)){
+						double t_retarget_start = node->now().seconds();
 						bool redo_ok = replanner.initialPlan(3, H);
+						std::cout << "[TIMING] visual-target re-solve took "
+						          << (node->now().seconds() - t_retarget_start)
+						          << "s, ok=" << redo_ok << std::endl;
 						if(redo_ok){
 							traj_use = replanner.getTraj();
 							controller->startFlight(traj_use);

@@ -66,6 +66,7 @@ add_library(ros_traj_gen_utils_lib
   src/cuboid_map/rect_node.cpp
   src/cuboid_map/ros_cuboid_utils.cpp
   src/ros_replanner_utils.cpp
+  src/control/geometric_controller.cpp
 )
 set_target_properties(ros_traj_gen_utils_lib PROPERTIES OUTPUT_NAME ros_traj_gen_utils)
 
@@ -86,6 +87,15 @@ target_link_libraries(traj_exe
   ${cpp_typesupport_target}
 )
 
+# Geometric (flatness-based) trajectory-tracking controller: PositionCommand
+# + vehicle_odometry -> body-rate + thrust, published directly to PX4.
+add_executable(so3_control_node src/control/so3_control_node.cpp)
+ament_target_dependencies(so3_control_node ${dependencies})
+target_link_libraries(so3_control_node
+  ros_traj_gen_utils_lib
+  ${cpp_typesupport_target}
+)
+
 install(
   DIRECTORY include/
   DESTINATION include
@@ -100,7 +110,7 @@ install(
 )
 
 install(
-  TARGETS traj_exe
+  TARGETS traj_exe so3_control_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

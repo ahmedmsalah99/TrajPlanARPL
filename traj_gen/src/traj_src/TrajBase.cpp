@@ -352,7 +352,7 @@ bool TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	// rotation. e3 is world-up; in NED (z-down) that is (0,0,-1).
 	Eigen::Vector3d s3(H(0,2), H(1,2), H(2,2));
 	std::cout << "[DIAG] calcPerchCond s3 (goal normal used) = "
-            << s3 << std::endl;
+            << s3.transpose() << std::endl;
 	Eigen::Vector3d e3(0.0, 0.0, -1.0);
 	double cos_incl = s3.dot(e3);                       // = cos(inclination)
 	double sin_incl = sqrt(s3(0)*s3(0) + s3(1)*s3(1));  // horizontal length of s3 = sin(inclination)
@@ -397,10 +397,14 @@ bool TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	finalAccel[0] = s3(0) * force - 9.81 * e3(0);
 	finalAccel[1] = s3(1) * force - 9.81 * e3(1);
 	finalAccel[2] = s3(2) * force - 9.81 * e3(2);
-	std::cout << "final acceleration " << finalAccel[0] << std::endl;
-	std::cout << "final acceleration " << finalAccel[1] << std::endl;
-	std::cout << "final acceleration " << finalAccel[2] << std::endl;
-	std::cout << "final acceleration " << finalAccel << std::endl;
+	// s3 here may differ from the "[DIAG] ... s3 (goal normal used)" log above --
+	// that one prints the raw value straight from H, BEFORE the upside-down guard
+	// (a few lines up) can overwrite it. This one prints whatever s3 actually went
+	// into finalAccel below, so the two together tell you whether the clamp fired.
+	std::cout << "[DIAG] calcPerchCond final s3 (post-clamp, actually used) = "
+	          << s3.transpose() << ", force=" << force << " -> finalAccel = ("
+	          << finalAccel[0] << ", " << finalAccel[1] << ", " << finalAccel[2] << ")"
+	          << std::endl;
 
 	// Reject up front if the perch physics (fixed by the target geometry and
 	// maxInclinationAccel/impactNormalVel/impactSlideVel) demand more horizontal
