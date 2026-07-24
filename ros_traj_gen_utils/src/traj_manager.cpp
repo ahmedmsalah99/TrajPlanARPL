@@ -61,10 +61,11 @@ Eigen::Matrix4d target;
 bool usePerch = false;
 bool useVisual = false;
 //Replanner timing/retry tuning (read from config in init_params)
-// 0.02s = 50Hz, aligned with PX4's own mc_pos_control loop rate (the outer
-// loop our TrajectorySetpoint stream feeds) -- a full re-solve doesn't need
-// to run faster than the control loop actually consuming its output.
-double g_replan_time = 0.02;
+// Deliberately NOT matched to the 50Hz command-publish rate below: a full
+// re-solve is much heavier than sampling an already-computed polynomial, and
+// this solver has been seen to occasionally take far longer than a 50Hz
+// (0.02s) budget would allow. Left at the original, empirically-used 0.04s.
+double g_replan_time = 0.04;
 double g_replan_t_off = 0.05;
 double g_replan_retry_step = 0.2;
 int g_replan_retry_max = 10;
@@ -272,10 +273,10 @@ void init_params(){
 	subMap = node->create_subscription<ros_traj_gen_utils::msg::CuboidMap>(
 		"/vox_blox_map/graph", 10,
 		[](const ros_traj_gen_utils::msg::CuboidMap &msg){ cube_map.setListiner(msg); });
-	//Replanner timing/retry tuning
-	// 0.02s = 50Hz, matching PX4's mc_pos_control loop rate -- see the
-	// g_replan_time declaration comment above.
-	g_replan_time = getParamOr<double>("replan_time", 0.02);
+	//Replanner timing/retry tuning (default preserves the original, not
+	// matched to the command-publish rate -- see the g_replan_time
+	// declaration comment above)
+	g_replan_time = getParamOr<double>("replan_time", 0.04);
 	g_replan_t_off = getParamOr<double>("replan_t_off", 0.05);
 	g_replan_retry_step = getParamOr<double>("replan_retry_step", 0.2);
 	g_replan_retry_max = getParamOr<int>("replan_retry_max", 10);
