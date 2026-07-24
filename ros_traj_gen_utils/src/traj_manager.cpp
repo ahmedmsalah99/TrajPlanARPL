@@ -5,6 +5,8 @@
 #include <cmath>
 #include <memory>
 #include <atomic>
+#include <fstream>
+#include <iomanip>
 #include <traj_gen/trajectory/Waypoint.h>
 #include <traj_gen/trajectory/QPpolyTraj.h>
 #include <traj_gen/traj_utils/polynomial.h>
@@ -76,6 +78,23 @@ double g_fov_coverage_fraction = 0.5;
 std::atomic<bool> g_replanEnabled{false};
 rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_start_replan_;
 rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_stop_replan_;
+
+// [TRAJ_LOG] Planned-trajectory snapshots: every time a new solve becomes the
+// active trajectory, sample it across its own duration and append it as one
+// block to this file (throttled by g_trajSavePeriodS -- a fast replan cadence
+// would otherwise flood the file with near-identical snapshots). Both this
+// and g_actualCsv timestamp with the SAME absolute clock (node->now()), so a
+// planned sample's absolute time is just gen_time_abs + t_local -- no
+// separate alignment step needed to compare against the actual log.
+std::ofstream g_plannedCsv;
+double g_lastPlannedSaveTime = -1e18;
+int g_plannedTrajId = 0;
+double g_trajSavePeriodS = 1.0;
+double g_trajSampleDt = 0.05;
+
+// [TRAJ_LOG] Continuous actual vehicle position/velocity, timestamped --
+// written from the existing vehicle_odometry callback in init_params().
+std::ofstream g_actualCsv;
 
 // Helper to declare (once) and fetch a parameter with a default.
 template <typename T>
@@ -235,6 +254,17 @@ void init_params(){
 
 			odomListiner.outputListiner(odom, node);
 			aprilListen.updateOdom(odom);
+
+			// [TRAJ_LOG] continuous actual position/velocity, timestamped.
+			if(g_actualCsv.is_open()){
+				g_actualCsv << std::setprecision(17) << node->now().seconds() << ","
+				            << std::setprecision(9)
+				            << odom.pose.pose.position.x << "," << odom.pose.pose.position.y << ","
+				            << odom.pose.pose.position.z << ","
+				            << odom.twist.twist.linear.x << "," << odom.twist.twist.linear.y << ","
+				            << odom.twist.twist.linear.z << "\n";
+				g_actualCsv.flush();
+			}
 			});
 	subMap = node->create_subscription<ros_traj_gen_utils::msg::CuboidMap>(
 		"/vox_blox_map/graph", 10,
@@ -247,6 +277,53 @@ void init_params(){
 	g_replan_min_seg = getParamOr<double>("replan_min_seg", 0.5);
 	g_fov_enable = getParamOr<bool>("fov_enable", true);
 	g_fov_coverage_fraction = getParamOr<double>("fov_coverage_fraction", 0.5);
+
+	// [TRAJ_LOG] Planned-trajectory snapshots (throttled) + continuous actual
+	// vehicle state, both timestamped on the same absolute clock -- see the
+	// comments on g_plannedCsv/g_actualCsv above.
+	g_trajSavePeriodS = getParamOr<double>("traj_save_period_s", 1.0);
+	g_trajSampleDt = getParamOr<double>("traj_sample_dt", 0.05);
+	std::string planned_traj_log_path = getParamOr<std::string>(
+		"planned_traj_log_path", std::string("/tmp/planned_trajectories.csv"));
+	std::string actual_traj_log_path = getParamOr<std::string>(
+		"actual_traj_log_path", std::string("/tmp/actual_trajectory.csv"));
+	g_plannedCsv.open(planned_traj_log_path, std::ios::out | std::ios::trunc);
+	if(g_plannedCsv.is_open()){
+		g_plannedCsv << "traj_id,gen_time_abs,t_local,x,y,z,vx,vy,vz\n";
+	} else {
+		std::cout << "[TRAJ_LOG] FAILED to open " << planned_traj_log_path << " for writing" << std::endl;
+	}
+	g_actualCsv.open(actual_traj_log_path, std::ios::out | std::ios::trunc);
+	if(g_actualCsv.is_open()){
+		g_actualCsv << "t_abs,x,y,z,vx,vy,vz\n";
+	} else {
+		std::cout << "[TRAJ_LOG] FAILED to open " << actual_traj_log_path << " for writing" << std::endl;
+	}
+}
+
+// [TRAJ_LOG] Samples traj_use across its own duration and appends it to
+// g_plannedCsv as one traj_id-tagged block, throttled by g_trajSavePeriodS.
+void maybeLogPlannedTrajectory(TrajBase * traj_use){
+	double now_s = node->now().seconds();
+	if(now_s - g_lastPlannedSaveTime < g_trajSavePeriodS){
+		return;
+	}
+	g_lastPlannedSaveTime = now_s;
+
+	if(!g_plannedCsv.is_open()){
+		return;
+	}
+	double totalTime = 0.0;
+	for(size_t i = 0; i < traj_use->segmentTimes.size(); i++){ totalTime += traj_use->segmentTimes[i]; }
+	int traj_id = g_plannedTrajId++;
+	for(double t = 0.0; t <= totalTime + 1e-9; t += g_trajSampleDt){
+		Eigen::MatrixXd pt = traj_use->evalTraj(t);
+		g_plannedCsv << traj_id << "," << std::setprecision(17) << now_s << "," << t << ","
+		             << std::setprecision(9)
+		             << pt(0,0) << "," << pt(0,1) << "," << pt(0,2) << ","
+		             << pt(1,0) << "," << pt(1,1) << "," << pt(1,2) << "\n";
+	}
+	g_plannedCsv.flush();
 }
 
 
@@ -284,6 +361,7 @@ void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * cont
 		return;
 	}
 	visualize_paths(traj);
+	maybeLogPlannedTrajectory(traj);
 	//Nulltracker transition
 	auto transition_cmd = std::make_shared<trackers_msgs::srv::Transition::Request>();
 	transition_cmd->tracker = null_tracker_str;
@@ -323,6 +401,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	std::cout << "preparation initial plan solved " <<std::endl;
 	TrajBase * traj_use = replanner.getTraj();
 	visualize_paths(traj_use);
+	maybeLogPlannedTrajectory(traj_use);
 	auto transition_cmd = std::make_shared<trackers_msgs::srv::Transition::Request>();
 	transition_cmd->tracker = null_tracker_str;
 	srv_transition_->async_send_request(transition_cmd);
@@ -388,6 +467,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 					//refresh RViz so it shows the live replanned trajectory, not the
 					//stale initial plan (the endpoint tracks the moving target)
 					visualize_paths(traj_use);
+					maybeLogPlannedTrajectory(traj_use);
 				}
 				double replan_timer_end =  node->now().seconds() ;
 				// std::cout << "Time ELAPSED " <<replan_timer_end-replan_timer <<std::endl;
@@ -414,6 +494,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 							traj_use = replanner.getTraj();
 							controller->startFlight(traj_use);
 							visualize_paths(traj_use);
+							maybeLogPlannedTrajectory(traj_use);
 						}
 						else{
 							std::cout << "[VISUAL_TARGET] initial plan toward the current "
