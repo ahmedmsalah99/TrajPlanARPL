@@ -61,7 +61,10 @@ Eigen::Matrix4d target;
 bool usePerch = false;
 bool useVisual = false;
 //Replanner timing/retry tuning (read from config in init_params)
-double g_replan_time = 0.04;
+// 0.02s = 50Hz, aligned with PX4's own mc_pos_control loop rate (the outer
+// loop our TrajectorySetpoint stream feeds) -- a full re-solve doesn't need
+// to run faster than the control loop actually consuming its output.
+double g_replan_time = 0.02;
 double g_replan_t_off = 0.05;
 double g_replan_retry_step = 0.2;
 int g_replan_retry_max = 10;
@@ -269,8 +272,10 @@ void init_params(){
 	subMap = node->create_subscription<ros_traj_gen_utils::msg::CuboidMap>(
 		"/vox_blox_map/graph", 10,
 		[](const ros_traj_gen_utils::msg::CuboidMap &msg){ cube_map.setListiner(msg); });
-	//Replanner timing/retry tuning (defaults preserve prior behavior)
-	g_replan_time = getParamOr<double>("replan_time", 0.04);
+	//Replanner timing/retry tuning
+	// 0.02s = 50Hz, matching PX4's mc_pos_control loop rate -- see the
+	// g_replan_time declaration comment above.
+	g_replan_time = getParamOr<double>("replan_time", 0.02);
 	g_replan_t_off = getParamOr<double>("replan_t_off", 0.05);
 	g_replan_retry_step = getParamOr<double>("replan_retry_step", 0.2);
 	g_replan_retry_max = getParamOr<int>("replan_retry_max", 10);
@@ -573,7 +578,12 @@ int main(int argc, char** argv)
 	qp_traj.setIneqSampleDt(getParamOr<double>("ineq_sample_dt", 0.05));
 	//These values of 5 means that for a 1.7m distance gives around 5/3.4 or 1.5 ish time allocated.
 	TrajBase * traj;
-	double dt =0.01; //Handles the timer speed
+	// 0.02s = 50Hz: this feeds PX4's TrajectorySetpoint (via offboard_bridge),
+	// which PX4's own mc_pos_control loop -- the outer-most loop PX4 itself
+	// runs -- consumes at 50Hz. Publishing faster than that just resends
+	// values the position controller won't read until its next 50Hz tick
+	// anyway.
+	double dt =0.02; //Handles the timer speed
 	std::string cmd_topic = vehicle_name+"/position_cmd";
 	poscmd_publisher controller(node, cmd_topic, dt);
 	bool useBern = false;
