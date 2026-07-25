@@ -136,7 +136,7 @@ void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseStamped &msg){
 bool apriltag_utils::getLanding(Eigen::Matrix4d * pointer_in){
 	if(flag==1){
 		//aprilOdomSub.shutdown();
-		//std::cout << "Succesful Read" <<std::endl;
+		std::cout << "Succesful Read" <<std::endl;
 		joint_pose comb_pose;
 		comb_pose.quad =  current_heading;
 		comb_pose.target = current_target.pose;
@@ -150,6 +150,7 @@ bool apriltag_utils::getLanding(Eigen::Matrix4d * pointer_in){
 		//aprilOdomSub = nh.subscribe(topic_name, 1, &odom_utils::outputListiner, &odom_l);
 		return true;
 	}
+	std::cout << "vivion flag is false " << std::endl;
 	return false;
 
 } 

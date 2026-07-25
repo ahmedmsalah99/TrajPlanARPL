@@ -222,7 +222,9 @@ void init_params(){
 	visual_acc_pub_ = node->create_publisher<nav_msgs::msg::Path>("/"+vehicle_name+"/trackers_manager/qp_tracker/qp_trajectory_acc", 10);
 	subApril = node->create_subscription<geometry_msgs::msg::PoseStamped>(
 		"/tags_features_extractor/tag_pose", best_effort_qos,
-		[](const geometry_msgs::msg::PoseStamped &msg){ aprilListen.aprilListen(msg); });
+		[](const geometry_msgs::msg::PoseStamped &msg){ 
+			std::cout << "updating vision" << std::endl;
+			aprilListen.aprilListen(msg); });
 
 	subWaypoint = node->create_subscription<nav_msgs::msg::Path>(
 		vehicle_name+"/waypoints", 10,
@@ -470,12 +472,13 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 		replanWasEnabled = replanEnabledNow;
 		double t_elap = tend - t0;
 		t0 = tend;
-
+		std::cout << "replanEnabledNow " << replanEnabledNow << std::endl;
 		if(replanEnabledNow){
 			time_plan+=t_elap;
 			if (time_plan >=replan_time){
 				//std::cout << "replan start" <<std::endl;
 				double replan_timer = node->now().seconds() ;
+				std::cout << "useVisual " << useVisual << std::endl;
 				if(useVisual){
 					Eigen::Matrix4d H;
 					if(aprilListen.getLanding(&H)){

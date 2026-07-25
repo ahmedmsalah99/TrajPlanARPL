@@ -357,6 +357,7 @@ bool TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	double cos_incl = s3.dot(e3);                       // = cos(inclination)
 	double sin_incl = sqrt(s3(0)*s3(0) + s3(1)*s3(1));  // horizontal length of s3 = sin(inclination)
 	std::cout << "sin_incl " << sin_incl <<std::endl;
+	std::cout << "cos_incl " << cos_incl <<std::endl;
 	// Guard: an upside-down / overhanging pad (normal points below horizontal)
 	// would require thrusting downward, which a quadrotor cannot do. Warn and
 	// clamp to a vertical surface rather than emit an infeasible target.
@@ -372,7 +373,7 @@ bool TrajBase::calcPerchCond(Eigen::Matrix4d H){
 
 	// Terminal specific-thrust magnitude (eq. 12): scaled from 0 (flat) up to
 	// maxInclinationAccel (vertical) by the inclination factor sin(inclination).
-	double force = maxInclinationAccel * sin_incl;
+	double force = 9.8 + maxInclinationAccel * sin_incl;
 	std::cout << "force is " << force << " sin_incl "<< sin_incl << std::endl;
 	// Impact velocity built in the surface frame so it generalizes to any
 	// orientation: a component INTO the surface (-s3, magnitude impactNormalVel = vS1)
