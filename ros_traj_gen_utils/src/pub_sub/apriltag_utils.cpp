@@ -1,5 +1,55 @@
 #include <ros_traj_gen_utils/apriltag_utils.h>
+#include <algorithm>
 using namespace std;
+
+namespace {
+// [SYNC] Odometry at the tag's exact capture instant, interpolated between
+// the two buffered samples bracketing it -- position lerp, orientation
+// slerp (the correct way to interpolate rotation). At 100Hz buffer sampling,
+// snapping to whichever single sample is nearest can be off by up to ~10ms;
+// during any real rotation rate that directly rotates the world-frame
+// target pose WorldRot() computes, since H_IR's orientation comes straight
+// from this sample.
+nav_msgs::msg::Odometry interpolateOdometry(const nav_msgs::msg::Odometry& before,
+                                             const nav_msgs::msg::Odometry& after,
+                                             double alpha){
+	alpha = std::clamp(alpha, 0.0, 1.0);
+	nav_msgs::msg::Odometry out = after; // header/frame ids etc from the later sample
+
+	out.pose.pose.position.x = before.pose.pose.position.x +
+		alpha * (after.pose.pose.position.x - before.pose.pose.position.x);
+	out.pose.pose.position.y = before.pose.pose.position.y +
+		alpha * (after.pose.pose.position.y - before.pose.pose.position.y);
+	out.pose.pose.position.z = before.pose.pose.position.z +
+		alpha * (after.pose.pose.position.z - before.pose.pose.position.z);
+
+	Eigen::Quaterniond q_before(before.pose.pose.orientation.w, before.pose.pose.orientation.x,
+	                            before.pose.pose.orientation.y, before.pose.pose.orientation.z);
+	Eigen::Quaterniond q_after(after.pose.pose.orientation.w, after.pose.pose.orientation.x,
+	                           after.pose.pose.orientation.y, after.pose.pose.orientation.z);
+	Eigen::Quaterniond q_interp = q_before.slerp(alpha, q_after);
+	out.pose.pose.orientation.w = q_interp.w();
+	out.pose.pose.orientation.x = q_interp.x();
+	out.pose.pose.orientation.y = q_interp.y();
+	out.pose.pose.orientation.z = q_interp.z();
+
+	// Velocity too, for consistency -- current_heading is also handed out
+	// whole via getLanding(joint_pose*), not just consumed by WorldRot().
+	out.twist.twist.linear.x = before.twist.twist.linear.x +
+		alpha * (after.twist.twist.linear.x - before.twist.twist.linear.x);
+	out.twist.twist.linear.y = before.twist.twist.linear.y +
+		alpha * (after.twist.twist.linear.y - before.twist.twist.linear.y);
+	out.twist.twist.linear.z = before.twist.twist.linear.z +
+		alpha * (after.twist.twist.linear.z - before.twist.twist.linear.z);
+	out.twist.twist.angular.x = before.twist.twist.angular.x +
+		alpha * (after.twist.twist.angular.x - before.twist.twist.angular.x);
+	out.twist.twist.angular.y = before.twist.twist.angular.y +
+		alpha * (after.twist.twist.angular.y - before.twist.twist.angular.y);
+	out.twist.twist.angular.z = before.twist.twist.angular.z +
+		alpha * (after.twist.twist.angular.z - before.twist.twist.angular.z);
+	return out;
+}
+} // namespace
 
 apriltag_utils::apriltag_utils(){
 	// Defaults reproduce the original hard-coded extrinsics (camera 0.3 m forward,
@@ -96,6 +146,7 @@ void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseStamped &msg){
 	std::cout << "[APRILDIAG] odom buffer covers [" << oldest << ", " << newest
 	          << "] (span=" << (newest - oldest) << "s), tag_read=" << tag_read
 	          << " (tag_read - newest=" << (tag_read - newest) << ")" << std::endl;
+	bool clamped_newest = false;
 	if(tag_read > rclcpp::Time(odom_buffer[index].header.stamp).seconds()){
 		while(tag_read > rclcpp::Time(odom_buffer[index].header.stamp).seconds()){
 			//std::cout << tag_read - odom_buffer[index].header.stamp.toSec() <<std::endl;
@@ -105,6 +156,7 @@ void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseStamped &msg){
 				//std::cout << "Buffer failed 1" <<std::endl;
 				// return;
 				index = (circle_start - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+				clamped_newest = true;
 				std::cout << "[APRILDIAG] tag newer than whole buffer, "
 				          << "clamped to newest sample" << std::endl;
         		break;
@@ -125,10 +177,37 @@ void apriltag_utils::aprilListen(const geometry_msgs::msg::PoseStamped &msg){
 			}
 		}
 	}
-	std::cout << "[APRILDIAG] SUCCESS: synced tag to odom_buffer[" << index << "], "
-	          << "|dt|=" << (tag_read - rclcpp::Time(odom_buffer[index].header.stamp).seconds())
-	          << "s" << std::endl;
-	current_heading = odom_buffer[index];
+
+	// [SYNC] index brackets tag_read from one side (whichever the search
+	// above found); interpolate against its neighbor on the other side so
+	// current_heading reflects the vehicle's pose at the tag's actual
+	// capture instant, not whichever single buffered sample happened to be
+	// nearest. Not possible when clamped to the newest sample (no neighbor
+	// exists beyond it) or on an exact timestamp match.
+	double t_index = rclcpp::Time(odom_buffer[index].header.stamp).seconds();
+	if(clamped_newest || t_index == tag_read){
+		current_heading = odom_buffer[index];
+		std::cout << "[APRILDIAG] SUCCESS: synced tag to odom_buffer[" << index
+		          << "] (no interpolation), |dt|=" << (tag_read - t_index) << "s" << std::endl;
+	}
+	else if(t_index < tag_read){
+		// index is the "before" sample.
+		int idx_after = (index + 1) % BUFFER_SIZE;
+		double t_after = rclcpp::Time(odom_buffer[idx_after].header.stamp).seconds();
+		double alpha = (t_after > t_index) ? (tag_read - t_index) / (t_after - t_index) : 0.0;
+		current_heading = interpolateOdometry(odom_buffer[index], odom_buffer[idx_after], alpha);
+		std::cout << "[APRILDIAG] SUCCESS: synced tag between odom_buffer[" << index << "]/["
+		          << idx_after << "], alpha=" << alpha << " (interpolated)" << std::endl;
+	}
+	else{
+		// index is the "after" sample.
+		int idx_before = (index - 1 + BUFFER_SIZE) % BUFFER_SIZE;
+		double t_before = rclcpp::Time(odom_buffer[idx_before].header.stamp).seconds();
+		double alpha = (t_index > t_before) ? (tag_read - t_before) / (t_index - t_before) : 0.0;
+		current_heading = interpolateOdometry(odom_buffer[idx_before], odom_buffer[index], alpha);
+		std::cout << "[APRILDIAG] SUCCESS: synced tag between odom_buffer[" << idx_before << "]/["
+		          << index << "], alpha=" << alpha << " (interpolated)" << std::endl;
+	}
 	current_target = msg;
 	flag = 1;
 }
