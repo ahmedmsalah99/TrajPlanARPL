@@ -374,11 +374,41 @@ void visualize_paths(TrajBase * traj ){
 	}
 }
 
+// When useVisual is true, the initial plan must not run on a stale/default
+// target -- it needs to be aimed at wherever the visual target actually is,
+// same as every later re-solve. Blocks (spinning) until aprilListen has a
+// detection to hand back, or the node starts shutting down. Returns false
+// only in the shutdown case (H is left untouched then).
+bool waitForVisualTarget(Eigen::Matrix4d * H){
+	if(aprilListen.getLanding(H)){
+		return true; // already have one -- no need to wait or log
+	}
+	std::cout << "[VISUAL_TARGET] useVisual is true -- waiting for a visual "
+	          << "target before the initial plan can run..." << std::endl;
+	while(rclcpp::ok()){
+		rclcpp::spin_some(node);
+		if(aprilListen.getLanding(H)){
+			std::cout << "[VISUAL_TARGET] visual target received -- "
+			          << "proceeding with initial plan." << std::endl;
+			return true;
+		}
+		rclcpp::sleep_for(50ms);
+	}
+	return false;
+}
+
 void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * controller, TrajBase * traj){
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, false);
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
 	bool initial_ok;
-	if(usePerch){
+	if(useVisual){
+		Eigen::Matrix4d H;
+		if(!waitForVisualTarget(&H)){
+			return; // shutting down while still waiting
+		}
+		initial_ok = replanner.initialPlan(3, H);
+	}
+	else if(usePerch){
 		std::cout << target <<std::endl;
 		initial_ok = replanner.initialPlan(3, target);
 	}
@@ -417,7 +447,14 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	replanner.setFOVEnable(g_fov_enable);
 	replanner.setFOVCoverageFraction(g_fov_coverage_fraction);
 	bool initial_ok;
-	if(usePerch){
+	if(useVisual){
+		Eigen::Matrix4d H;
+		if(!waitForVisualTarget(&H)){
+			return; // shutting down while still waiting
+		}
+		initial_ok = replanner.initialPlan(3, H);
+	}
+	else if(usePerch){
 		initial_ok = replanner.initialPlan(3, target);
 	}
 	else{
