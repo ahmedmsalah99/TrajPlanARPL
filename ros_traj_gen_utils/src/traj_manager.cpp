@@ -79,6 +79,19 @@ std::atomic<bool> g_replanEnabled{false};
 rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_start_replan_;
 rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_stop_replan_;
 
+// [DEBUG] Optional mode: once true, the visual target replan() is aimed at
+// gets captured once and then locked -- never refreshed from aprilListen
+// again for as long as replanning stays enabled. Isolates "is the CONTROL
+// loop the problem" from "is the visual target itself jumping around"
+// during tracking-divergence debugging. Off by default; only takes effect
+// while replanEnabledNow (i.e. after start_replan/offboard-enable) --
+// visual tracking before that (the initial-plan re-solve loop) is
+// untouched. g_haveFrozenTarget resets on stop_replan, so the next
+// offboard-enable captures a fresh target rather than reusing a stale one.
+bool g_freezeTargetOnOffboard = false;
+bool g_haveFrozenTarget = false;
+Eigen::Matrix4d g_frozenTarget = Eigen::Matrix4d::Identity();
+
 // [TRAJ_LOG] Planned-trajectory snapshots: every time a new solve becomes the
 // active trajectory, sample it across its own duration and append it as one
 // block to this file (throttled by g_trajSavePeriodS -- a fast replan cadence
@@ -246,6 +259,7 @@ void init_params(){
 		[](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
 		   std::shared_ptr<std_srvs::srv::Trigger::Response> response){
 			g_replanEnabled = false;
+			g_haveFrozenTarget = false; // next offboard-enable captures a fresh target
 			response->success = true;
 			response->message = "Replanning disabled -- the last successfully "
 			                     "replanned trajectory keeps being published as-is.";
@@ -316,6 +330,9 @@ void init_params(){
 	g_replan_min_seg = getParamOr<double>("replan_min_seg", 0.5);
 	g_fov_enable = getParamOr<bool>("fov_enable", true);
 	g_fov_coverage_fraction = getParamOr<double>("fov_coverage_fraction", 0.5);
+
+	// [DEBUG] See g_freezeTargetOnOffboard declaration comment above.
+	g_freezeTargetOnOffboard = getParamOr<bool>("freeze_target_on_offboard", false);
 
 	// [TRAJ_LOG] Config only -- the files themselves are opened by
 	// startTrajLogging(), called from start_replan's handler once offboard is
@@ -518,7 +535,27 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 				std::cout << "useVisual " << useVisual << std::endl;
 				if(useVisual){
 					Eigen::Matrix4d H;
-					if(aprilListen.getLanding(&H)){
+					bool haveTarget;
+					if(g_freezeTargetOnOffboard){
+						// [DEBUG] Capture once, then never touch aprilListen again --
+						// keep retrying each cycle only until the first capture
+						// succeeds (in practice this fires on the very next cycle,
+						// since visual tracking was already running before offboard
+						// enabled), then lock permanently until stop_replan resets it.
+						if(!g_haveFrozenTarget){
+							g_haveFrozenTarget = aprilListen.getLanding(&g_frozenTarget);
+							if(g_haveFrozenTarget){
+								std::cout << "[DEBUG] freeze_target_on_offboard: target "
+								          << "captured and frozen." << std::endl;
+							}
+						}
+						haveTarget = g_haveFrozenTarget;
+						H = g_frozenTarget;
+					}
+					else{
+						haveTarget = aprilListen.getLanding(&H);
+					}
+					if(haveTarget){
 						// std::cout << "[DIAG] getLanding OK, target H=\n" << H << std::endl;
 						replan_success = replanner.replan(4,time_plan,g_replan_t_off,H);
 					}
