@@ -35,7 +35,7 @@ void poscmd_publisher::timerCallback(){
 			traj_time = totalTime;
 			state = HOVER;
 		}
-		//std::cout <<traj_time <<std::endl;
+		std::cout <<  "traj_time " <<traj_time <<std::endl;
 
 		Eigen::MatrixXd pt;
 		pt = currTraj->evalTraj(traj_time);
@@ -44,9 +44,9 @@ void poscmd_publisher::timerCallback(){
 		posXYZ.y = pt(0,1);
 		posXYZ.z = pt(0,2);
 		geometry_msgs::msg::Vector3 veloXYZ;
-		veloXYZ.x = pt(1,0);
-		veloXYZ.y = pt(1,1);
-		veloXYZ.z = pt(1,2);
+		veloXYZ.x =  pt(1,0);
+		veloXYZ.y =  pt(1,1);
+		veloXYZ.z =  pt(1,2);
 		geometry_msgs::msg::Vector3 accelXYZ;
 		accelXYZ.x = pt(2,0);
 		accelXYZ.y = pt(2,1);

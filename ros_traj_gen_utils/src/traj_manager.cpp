@@ -198,7 +198,7 @@ void init_params(){
 		vehicle_name+"/start_replan",
 		[](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
 		   std::shared_ptr<std_srvs::srv::Trigger::Response> response){
-			// g_replanEnabled = true;
+			g_replanEnabled = true;
 			response->success = true;
 			response->message = "Replanning enabled.";
 			std::cout << "[REPLAN_GATE] " << response->message << std::endl;
@@ -573,7 +573,7 @@ int main(int argc, char** argv)
 	qp_traj.setIneqSampleDt(getParamOr<double>("ineq_sample_dt", 0.05));
 	//These values of 5 means that for a 1.7m distance gives around 5/3.4 or 1.5 ish time allocated.
 	TrajBase * traj;
-	double dt =0.01; //Handles the timer speed
+	double dt =0.02; //Handles the timer speed
 	std::string cmd_topic = vehicle_name+"/position_cmd";
 	poscmd_publisher controller(node, cmd_topic, dt);
 	bool useBern = false;
