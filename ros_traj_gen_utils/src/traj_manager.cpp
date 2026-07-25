@@ -83,18 +83,27 @@ rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_stop_replan_;
 // active trajectory, sample it across its own duration and append it as one
 // block to this file (throttled by g_trajSavePeriodS -- a fast replan cadence
 // would otherwise flood the file with near-identical snapshots). Both this
-// and g_actualCsv timestamp with the SAME absolute clock (node->now()), so a
-// planned sample's absolute time is just gen_time_abs + t_local -- no
-// separate alignment step needed to compare against the actual log.
+// and g_actualCsv timestamp relative to g_loggingT0 -- t=0 the moment offboard
+// is enabled (start_replan is called) -- so a planned sample's relative time
+// is just gen_time_rel + t_local, no separate alignment step needed.
 std::ofstream g_plannedCsv;
 double g_lastPlannedSaveTime = -1e18;
 int g_plannedTrajId = 0;
 double g_trajSavePeriodS = 1.0;
 double g_trajSampleDt = 0.05;
+std::string g_plannedTrajLogPath;
+std::string g_actualTrajLogPath;
 
 // [TRAJ_LOG] Continuous actual vehicle position/velocity, timestamped --
 // written from the existing vehicle_odometry callback in init_params().
 std::ofstream g_actualCsv;
+
+// [TRAJ_LOG] Both logs only actually write once offboard is enabled --
+// start_replan's handler opens (truncating) both files and sets this t=0.
+// Off/0 until then; maybeLogPlannedTrajectory and the actual-state write
+// below both check this before writing anything.
+bool g_loggingEnabled = false;
+double g_loggingT0 = 0.0;
 
 // Helper to declare (once) and fetch a parameter with a default.
 template <typename T>
@@ -137,6 +146,32 @@ nav_msgs::msg::Odometry vehicleOdometryToRosOdometry(
     odom.twist.twist.angular.z = px4_msg.angular_velocity[2];
 
     return odom;
+}
+
+// [TRAJ_LOG] Opens (truncating) both log files, writes their headers, and
+// sets g_loggingT0 = now -- called from start_replan's handler, so t=0 is
+// the moment offboard is actually enabled. Re-arms (fresh files, fresh t=0)
+// every time start_replan fires, treating each offboard-enable as a new
+// logging session.
+void startTrajLogging(){
+	g_loggingT0 = node->now().seconds();
+	g_loggingEnabled = true;
+
+	g_plannedCsv.open(g_plannedTrajLogPath, std::ios::out | std::ios::trunc);
+	if(g_plannedCsv.is_open()){
+		g_plannedCsv << "traj_id,gen_time_rel,t_local,x,y,z,vx,vy,vz\n";
+	} else {
+		std::cout << "[TRAJ_LOG] FAILED to open " << g_plannedTrajLogPath << " for writing" << std::endl;
+	}
+	g_lastPlannedSaveTime = -1e18;
+	g_plannedTrajId = 0;
+
+	g_actualCsv.open(g_actualTrajLogPath, std::ios::out | std::ios::trunc);
+	if(g_actualCsv.is_open()){
+		g_actualCsv << "t_rel,x,y,z,vx,vy,vz\n";
+	} else {
+		std::cout << "[TRAJ_LOG] FAILED to open " << g_actualTrajLogPath << " for writing" << std::endl;
+	}
 }
 
 void init_params(){
@@ -199,6 +234,7 @@ void init_params(){
 		[](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
 		   std::shared_ptr<std_srvs::srv::Trigger::Response> response){
 			g_replanEnabled = true;
+			startTrajLogging();
 			response->success = true;
 			response->message = "Replanning enabled.";
 			std::cout << "[REPLAN_GATE] " << response->message << std::endl;
@@ -255,9 +291,10 @@ void init_params(){
 			odomListiner.outputListiner(odom, node);
 			aprilListen.updateOdom(odom);
 
-			// [TRAJ_LOG] continuous actual position/velocity, timestamped.
-			if(g_actualCsv.is_open()){
-				g_actualCsv << std::setprecision(17) << node->now().seconds() << ","
+			// [TRAJ_LOG] continuous actual position/velocity, relative to
+			// g_loggingT0 (the moment offboard was enabled) -- no-op until then.
+			if(g_loggingEnabled && g_actualCsv.is_open()){
+				g_actualCsv << std::setprecision(17) << (node->now().seconds() - g_loggingT0) << ","
 				            << std::setprecision(9)
 				            << odom.pose.pose.position.x << "," << odom.pose.pose.position.y << ","
 				            << odom.pose.pose.position.z << ","
@@ -278,47 +315,40 @@ void init_params(){
 	g_fov_enable = getParamOr<bool>("fov_enable", true);
 	g_fov_coverage_fraction = getParamOr<double>("fov_coverage_fraction", 0.5);
 
-	// [TRAJ_LOG] Planned-trajectory snapshots (throttled) + continuous actual
-	// vehicle state, both timestamped on the same absolute clock -- see the
-	// comments on g_plannedCsv/g_actualCsv above.
+	// [TRAJ_LOG] Config only -- the files themselves are opened by
+	// startTrajLogging(), called from start_replan's handler once offboard is
+	// actually enabled (see g_loggingEnabled above).
 	g_trajSavePeriodS = getParamOr<double>("traj_save_period_s", 1.0);
 	g_trajSampleDt = getParamOr<double>("traj_sample_dt", 0.05);
-	std::string planned_traj_log_path = getParamOr<std::string>(
+	g_plannedTrajLogPath = getParamOr<std::string>(
 		"planned_traj_log_path", std::string("/tmp/planned_trajectories.csv"));
-	std::string actual_traj_log_path = getParamOr<std::string>(
+	g_actualTrajLogPath = getParamOr<std::string>(
 		"actual_traj_log_path", std::string("/tmp/actual_trajectory.csv"));
-	g_plannedCsv.open(planned_traj_log_path, std::ios::out | std::ios::trunc);
-	if(g_plannedCsv.is_open()){
-		g_plannedCsv << "traj_id,gen_time_abs,t_local,x,y,z,vx,vy,vz\n";
-	} else {
-		std::cout << "[TRAJ_LOG] FAILED to open " << planned_traj_log_path << " for writing" << std::endl;
-	}
-	g_actualCsv.open(actual_traj_log_path, std::ios::out | std::ios::trunc);
-	if(g_actualCsv.is_open()){
-		g_actualCsv << "t_abs,x,y,z,vx,vy,vz\n";
-	} else {
-		std::cout << "[TRAJ_LOG] FAILED to open " << actual_traj_log_path << " for writing" << std::endl;
-	}
 }
 
 // [TRAJ_LOG] Samples traj_use across its own duration and appends it to
 // g_plannedCsv as one traj_id-tagged block, throttled by g_trajSavePeriodS.
+// No-op until offboard is enabled (g_loggingEnabled) -- checked before the
+// throttle timer too, so the first trajectory generated right after offboard
+// enables logs immediately instead of being blocked by a stale timestamp
+// from while logging was off.
 void maybeLogPlannedTrajectory(TrajBase * traj_use){
+	if(!g_loggingEnabled || !g_plannedCsv.is_open()){
+		return;
+	}
 	double now_s = node->now().seconds();
 	if(now_s - g_lastPlannedSaveTime < g_trajSavePeriodS){
 		return;
 	}
 	g_lastPlannedSaveTime = now_s;
 
-	if(!g_plannedCsv.is_open()){
-		return;
-	}
+	double gen_time_rel = now_s - g_loggingT0;
 	double totalTime = 0.0;
 	for(size_t i = 0; i < traj_use->segmentTimes.size(); i++){ totalTime += traj_use->segmentTimes[i]; }
 	int traj_id = g_plannedTrajId++;
 	for(double t = 0.0; t <= totalTime + 1e-9; t += g_trajSampleDt){
 		Eigen::MatrixXd pt = traj_use->evalTraj(t);
-		g_plannedCsv << traj_id << "," << std::setprecision(17) << now_s << "," << t << ","
+		g_plannedCsv << traj_id << "," << std::setprecision(17) << gen_time_rel << "," << t << ","
 		             << std::setprecision(9)
 		             << pt(0,0) << "," << pt(0,1) << "," << pt(0,2) << ","
 		             << pt(1,0) << "," << pt(1,1) << "," << pt(1,2) << "\n";
