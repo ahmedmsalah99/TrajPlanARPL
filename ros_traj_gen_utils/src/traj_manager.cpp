@@ -450,7 +450,13 @@ void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * cont
 	while(controller->getState() != HOVER && rclcpp::ok()){
 		rclcpp::spin_some(node);
 	}
-	controller->setEND();
+	// Deliberately NOT setEND() here: END makes poscmd_publisher's timer return
+	// without publishing at all, so <device>/position_cmd goes dead the instant
+	// the flight finishes. Whatever is relaying it to PX4 (offboard_bridge)
+	// needs a continuously-fresh stream both to enter and to stay in OFFBOARD.
+	// HOVER keeps republishing the trajectory's final setpoint, which is the
+	// correct thing to hold at anyway. setEND() is still used on the failure
+	// paths above, where there is no valid final setpoint to hold.
 	auto trigger = std::make_shared<std_srvs::srv::Trigger::Request>();
 	hover_->async_send_request(trigger);
 
@@ -615,7 +621,9 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 		}
 	}
 	std::cout << "replanning time done, take a hover" << std::endl;
-	controller->setEND();
+	// Deliberately NOT setEND() here -- see the matching comment in
+	// executeOneShotTraj: HOVER keeps the position_cmd stream alive on the
+	// trajectory's final setpoint, END would kill it entirely.
 	auto trigger = std::make_shared<std_srvs::srv::Trigger::Request>();
 	hover_->async_send_request(trigger);
 }
