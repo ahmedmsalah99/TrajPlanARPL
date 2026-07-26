@@ -1,9 +1,38 @@
 #include <ros_traj_gen_utils/ros_waypoint_utils.h>
 #include <iostream>
+#include <cmath>
 using namespace std;
 
 static const std::string low_title[4] = { "lowX", "lowY", "lowZ", "lowW" };
 static const std::string up_title[4] = { "upX", "upY", "upZ", "upW" };
+
+namespace {
+constexpr double kPoseEqEps = 1e-6;
+bool poseApproxEqual(const geometry_msgs::msg::Pose& a, const geometry_msgs::msg::Pose& b){
+	return std::fabs(a.position.x - b.position.x) < kPoseEqEps &&
+	       std::fabs(a.position.y - b.position.y) < kPoseEqEps &&
+	       std::fabs(a.position.z - b.position.z) < kPoseEqEps &&
+	       std::fabs(a.orientation.x - b.orientation.x) < kPoseEqEps &&
+	       std::fabs(a.orientation.y - b.orientation.y) < kPoseEqEps &&
+	       std::fabs(a.orientation.z - b.orientation.z) < kPoseEqEps &&
+	       std::fabs(a.orientation.w - b.orientation.w) < kPoseEqEps;
+}
+} // namespace
+
+bool ros_waypoint_utils::isSameAsLast(const std::vector<geometry_msgs::msg::PoseStamped>& points) const {
+	if(!haveLastPoints_){
+		return false;
+	}
+	if(points.size() != lastPoints_.size()){
+		return false;
+	}
+	for(size_t i = 0; i < points.size(); i++){
+		if(!poseApproxEqual(points[i].pose, lastPoints_[i].pose)){
+			return false;
+		}
+	}
+	return true;
+}
 
 void ros_waypoint_utils::setNode(rclcpp::Node::SharedPtr node){
 	node_ = node;
@@ -63,6 +92,18 @@ waypoint additionalConstraint(rclcpp::Node::SharedPtr node, waypoint w, int poin
 
 void ros_waypoint_utils::waypointListiner(const nav_msgs::msg::Path &msg){
 	std::vector<geometry_msgs::msg::PoseStamped> points= msg.poses;
+	// [DEDUP] A republish of the exact same waypoint list (e.g. a heartbeat/
+	// dummy trigger that resends unconditionally, regardless of flight
+	// state) must not re-trigger a whole new flight -- only content that
+	// actually changed should. Without this, executeOneShotTraj/
+	// executeReplanTraj restart from scratch every time the previous flight
+	// naturally finishes and the still-running heartbeat is seen again.
+	if(isSameAsLast(points)){
+		return;
+	}
+	lastPoints_ = points;
+	haveLastPoints_ = true;
+
 	frame_id = msg.header.frame_id;
 	vertices.clear();
 	double prevYaw = 0;
