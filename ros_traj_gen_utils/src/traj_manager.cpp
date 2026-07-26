@@ -10,6 +10,7 @@
 #include <traj_gen/trajectory/Waypoint.h>
 #include <traj_gen/trajectory/QPpolyTraj.h>
 #include <traj_gen/traj_utils/polynomial.h>
+#include <traj_gen/traj_utils/quaternion.h>
 #include <ros_traj_gen_utils/apriltag_utils.h>
 #include <traj_gen/trajectory/TrajBase.h>
 #include <ros_traj_gen_utils/ros_traj_utils.h>
@@ -181,7 +182,7 @@ void startTrajLogging(){
 
 	g_actualCsv.open(g_actualTrajLogPath, std::ios::out | std::ios::trunc);
 	if(g_actualCsv.is_open()){
-		g_actualCsv << "t_rel,x,y,z,vx,vy,vz\n";
+		g_actualCsv << "t_rel,x,y,z,vx,vy,vz,roll,pitch,yaw\n";
 	} else {
 		std::cout << "[TRAJ_LOG] FAILED to open " << g_actualTrajLogPath << " for writing" << std::endl;
 	}
@@ -307,15 +308,27 @@ void init_params(){
 			odomListiner.outputListiner(odom, node);
 			aprilListen.updateOdom(odom);
 
-			// [TRAJ_LOG] continuous actual position/velocity, relative to
-			// g_loggingT0 (the moment offboard was enabled) -- no-op until then.
+			// [TRAJ_LOG] continuous actual position/velocity/attitude, relative
+			// to g_loggingT0 (the moment offboard was enabled) -- no-op until
+			// then. Roll/pitch logged to check whether a position/velocity
+			// tracking deviation is actually attitude-tilt coupling (e.g. a
+			// Z-axis correction leaning the thrust vector and dragging the
+			// vehicle horizontally) rather than a separate horizontal-loop or
+			// replanning issue.
 			if(g_loggingEnabled && g_actualCsv.is_open()){
+				Quaternion q_actual;
+				q_actual.w = odom.pose.pose.orientation.w;
+				q_actual.x = odom.pose.pose.orientation.x;
+				q_actual.y = odom.pose.pose.orientation.y;
+				q_actual.z = odom.pose.pose.orientation.z;
+				EulerAngles rpy_actual = ToEulerAngles(q_actual);
 				g_actualCsv << std::setprecision(17) << (node->now().seconds() - g_loggingT0) << ","
 				            << std::setprecision(9)
 				            << odom.pose.pose.position.x << "," << odom.pose.pose.position.y << ","
 				            << odom.pose.pose.position.z << ","
 				            << odom.twist.twist.linear.x << "," << odom.twist.twist.linear.y << ","
-				            << odom.twist.twist.linear.z << "\n";
+				            << odom.twist.twist.linear.z << ","
+				            << rpy_actual.roll << "," << rpy_actual.pitch << "," << rpy_actual.yaw << "\n";
 				g_actualCsv.flush();
 			}
 			});
