@@ -5,7 +5,6 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/path.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <traj_gen/trajectory/Waypoint.h>
 #include <ros_traj_gen_utils/ros_traj_utils.h>
 #include <traj_gen/traj_utils/quaternion.h>
@@ -17,14 +16,6 @@ private:
 std::vector<waypoint> vertices;
 std::string frame_id = "simulator";
 rclcpp::Node::SharedPtr node_;
-// [DEDUP] Last-seen raw waypoint poses, to tell a genuinely new waypoint
-// list apart from a republish of the same one (e.g. a heartbeat/dummy
-// waypoint publisher that resends the same content continuously, which
-// used to re-trigger a brand new flight every time the previous one
-// naturally finished).
-std::vector<geometry_msgs::msg::PoseStamped> lastPoints_;
-bool haveLastPoints_ = false;
-bool isSameAsLast(const std::vector<geometry_msgs::msg::PoseStamped>& points) const;
 public:
 
 int flag = 0;
