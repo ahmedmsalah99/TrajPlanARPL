@@ -7,9 +7,19 @@ traj_exe:
     replan: true             # perching uses online replanning
     display_2D: true        # publish 2D velocity/acceleration paths
     use_sim_time: true
-    # Dynamic limits used for time allocation
-    v_max: 10.0               # max velocity (m/s)
-    a_max: 15.0              # max acceleration (m/s^2)
+    # Dynamic limits used for time allocation. minimizeTime() shrinks the
+    # segment times until the trajectory's peak velocity/acceleration reaches
+    # these, so they are targets, not just ceilings -- whatever is set here is
+    # very nearly what the plan will demand.
+    #
+    # They are isotropic (a single 3D norm over x,y,z), but PX4's own limits are
+    # not: MPC_Z_VEL_MAX_DN is 1.5 m/s on this airframe vs MPC_XY_VEL_MAX in the
+    # double digits. Anything the plan asks for above the Z limit is silently
+    # clamped by PX4 before its velocity loop ever sees it, so the vehicle
+    # cannot track it no matter how the controller is tuned. Sized for the
+    # vertical axis for that reason -- the binding one on a descent/perch.
+    v_max: 1.5               # max velocity (m/s), = MPC_Z_VEL_MAX_DN
+    a_max: 3.0              # max acceleration (m/s^2), ~ MPC_ACC_DOWN_MAX
     # Perching parameters
     max_inclination_accel: 10.0  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
     impact_normal_vel: 2.0      # vS1: impact speed INTO the surface (m/s)
