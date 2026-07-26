@@ -101,6 +101,12 @@ Eigen::Matrix4d g_frozenTarget = Eigen::Matrix4d::Identity();
 // is enabled (start_replan is called) -- so a planned sample's relative time
 // is just gen_time_rel + t_local, no separate alignment step needed.
 std::ofstream g_plannedCsv;
+// The plan currently being flown, recorded even while logging is still off.
+// With replanning off there is exactly one plan and it is solved as soon as
+// waypoints arrive -- always before start_replan opens the logs -- so without
+// keeping it here, maybeLogPlannedTrajectory's gate drops the only plan there
+// will ever be and the planned log ends up containing nothing but its header.
+TrajBase * g_activeTraj = nullptr;
 double g_lastPlannedSaveTime = -1e18;
 int g_plannedTrajId = 0;
 double g_trajSavePeriodS = 1.0;
@@ -162,6 +168,8 @@ nav_msgs::msg::Odometry vehicleOdometryToRosOdometry(
     return odom;
 }
 
+void maybeLogPlannedTrajectory(TrajBase * traj_use);
+
 // [TRAJ_LOG] Opens (truncating) both log files, writes their headers, and
 // sets g_loggingT0 = now -- called from start_replan's handler, so t=0 is
 // the moment offboard is actually enabled. Re-arms (fresh files, fresh t=0)
@@ -185,6 +193,16 @@ void startTrajLogging(){
 		g_actualCsv << "t_rel,x,y,z,vx,vy,vz,roll,pitch,yaw\n";
 	} else {
 		std::cout << "[TRAJ_LOG] FAILED to open " << g_actualTrajLogPath << " for writing" << std::endl;
+	}
+
+	// Write out the plan that is already active. It was solved before this
+	// point (the initial plan runs as soon as waypoints arrive, offboard is
+	// enabled later), so it never made it past the logging gate. With
+	// replanning on, later replans would eventually populate the file anyway;
+	// with replanning off this is the only plan there is, which is why the
+	// planned log came out empty.
+	if(g_activeTraj != nullptr){
+		maybeLogPlannedTrajectory(g_activeTraj);
 	}
 }
 
@@ -365,6 +383,9 @@ void init_params(){
 // enables logs immediately instead of being blocked by a stale timestamp
 // from while logging was off.
 void maybeLogPlannedTrajectory(TrajBase * traj_use){
+	// Recorded before the gate, so a plan solved while logging is still off is
+	// still available for startTrajLogging() to write out.
+	g_activeTraj = traj_use;
 	if(!g_loggingEnabled || !g_plannedCsv.is_open()){
 		return;
 	}
