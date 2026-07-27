@@ -94,6 +94,31 @@ def plot_3d(ax, actual, planned, chosen_ids, keys, labels, title):
     ax.legend(fontsize='small')
 
 
+def plot_vs_time(axes, actual, planned, chosen_ids, keys, labels):
+    """One stacked subplot per axis, everything against seconds-since-offboard.
+
+    A 3D spatial view cannot show which end of a curve is t=0, so it cannot
+    distinguish 'the vehicle lagged the plan' from 'the vehicle went somewhere
+    else entirely' -- both look like two curves that don't coincide. Plotting
+    against time makes lag, overshoot and duration mismatch directly readable,
+    and lines the planned samples up on the same axis via gen_time_rel +
+    t_local (both are already relative to offboard-enable).
+    """
+    colors = plt.cm.viridis([i / max(1, len(chosen_ids) - 1) for i in range(len(chosen_ids))])
+    for ax, key, label in zip(axes, keys, labels):
+        ax.plot(actual['t'], actual[key], '-', color='tab:orange',
+                linewidth=2, label='actual')
+        for color, traj_id in zip(colors, chosen_ids):
+            entry = planned[traj_id]
+            t_abs = [entry['gen_time_rel'] + tl for tl in entry['t']]
+            ax.plot(t_abs, entry[key], '--', color=color,
+                    label='planned @ t=%.1fs' % entry['gen_time_rel'])
+        ax.set_ylabel(label)
+        ax.grid(True, alpha=0.3)
+    axes[0].legend(fontsize='small')
+    axes[-1].set_xlabel('t since offboard enable (s)')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -101,6 +126,9 @@ def main():
     parser.add_argument('actual_csv', nargs='?', default='/tmp/actual_trajectory.csv')
     parser.add_argument('--num-planned', type=int, default=10,
                          help='how many equally-spaced planned snapshots to overlay')
+    parser.add_argument('--time-series', action='store_true',
+                         help='plot z/vz (and x,y) against time instead of the 3D view -- '
+                              'use this to tell lag apart from overshoot')
     args = parser.parse_args()
 
     actual = load_actual(args.actual_csv)
@@ -112,16 +140,25 @@ def main():
         return
     chosen_ids = pick_equally_spaced(sorted_ids, args.num_planned)
 
-    fig = plt.figure(figsize=(16, 8))
-    ax_pos = fig.add_subplot(121, projection='3d')
-    ax_vel = fig.add_subplot(122, projection='3d')
+    if args.time_series:
+        fig, axes = plt.subplots(3, 2, figsize=(16, 9), sharex=True)
+        plot_vs_time(axes[:, 0], actual, planned, chosen_ids,
+                     ('x', 'y', 'z'), ('x (N)', 'y (E)', 'z (D)'))
+        plot_vs_time(axes[:, 1], actual, planned, chosen_ids,
+                     ('vx', 'vy', 'vz'), ('vx (N/s)', 'vy (E/s)', 'vz (D/s)'))
+        axes[0, 0].set_title('Position vs time')
+        axes[0, 1].set_title('Velocity vs time')
+    else:
+        fig = plt.figure(figsize=(16, 8))
+        ax_pos = fig.add_subplot(121, projection='3d')
+        ax_vel = fig.add_subplot(122, projection='3d')
 
-    plot_3d(ax_pos, actual, planned, chosen_ids, ('x', 'y', 'z'),
-            ('x (N)', 'y (E)', 'z (D)'),
-            'Position: actual vs %d planned snapshots' % len(chosen_ids))
-    plot_3d(ax_vel, actual, planned, chosen_ids, ('vx', 'vy', 'vz'),
-            ('vx (N/s)', 'vy (E/s)', 'vz (D/s)'),
-            'Velocity: actual vs %d planned snapshots' % len(chosen_ids))
+        plot_3d(ax_pos, actual, planned, chosen_ids, ('x', 'y', 'z'),
+                ('x (N)', 'y (E)', 'z (D)'),
+                'Position: actual vs %d planned snapshots' % len(chosen_ids))
+        plot_3d(ax_vel, actual, planned, chosen_ids, ('vx', 'vy', 'vz'),
+                ('vx (N/s)', 'vy (E/s)', 'vz (D/s)'),
+                'Velocity: actual vs %d planned snapshots' % len(chosen_ids))
 
     fig.suptitle('t=0 at offboard enable (NED)')
     fig.tight_layout()
