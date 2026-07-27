@@ -12,14 +12,27 @@ traj_exe:
     # these, so they are targets, not just ceilings -- whatever is set here is
     # very nearly what the plan will demand.
     #
-    # They are isotropic (a single 3D norm over x,y,z), but PX4's own limits are
-    # not: MPC_Z_VEL_MAX_DN is 1.5 m/s on this airframe vs MPC_XY_VEL_MAX in the
-    # double digits. Anything the plan asks for above the Z limit is silently
-    # clamped by PX4 before its velocity loop ever sees it, so the vehicle
-    # cannot track it no matter how the controller is tuned. Sized for the
-    # vertical axis for that reason -- the binding one on a descent/perch.
-    v_max: 1.5               # max velocity (m/s), = MPC_Z_VEL_MAX_DN
-    a_max: 3.0              # max acceleration (m/s^2), ~ MPC_ACC_DOWN_MAX
+    # With the MPC_* limits raised well above these, PX4 no longer clamps the
+    # setpoint -- so the binding constraint is now the airframe itself, and
+    # a_max is what has to respect it:
+    #
+    #   downward accel is capped at free fall, 9.81 m/s^2, at zero thrust. No
+    #     multirotor exceeds it, whatever MPC_ACC_DOWN_MAX says.
+    #   upward accel is capped at (T/W - 1)*9.81. Check MPC_THR_HOVER for the
+    #     real figure -- hovering at ~0.5 throttle means T/W ~ 2, so ~9.8 m/s^2.
+    #   horizontal accel is capped at 9.81*tan(MPC_TILTMAX_AIR) = 9.81 m/s^2 at
+    #     the 45 deg currently set.
+    #
+    # The previous a_max of 15 sat above all three: minimizeTime() drove the
+    # plan to ~14 m/s^2, i.e. ~1.5 g, which is past free fall going down and
+    # needs T/W ~ 2.5 going up. Unclamped, that does not become flyable -- it
+    # just relocates the truncation from PX4's setpoint limiter to actuator
+    # saturation, which is far harder to see in a log.
+    #
+    # 6.0 leaves real margin under every ceiling above. v_max is set so the
+    # stopping distance v^2/(2a) is ~3 m, comfortably inside a ~10 m approach.
+    v_max: 6.0               # max velocity (m/s)
+    a_max: 6.0              # max acceleration (m/s^2), under the T/W ceiling
     # Perching parameters
     max_inclination_accel: 10.0  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
     impact_normal_vel: 2.0      # vS1: impact speed INTO the surface (m/s)
