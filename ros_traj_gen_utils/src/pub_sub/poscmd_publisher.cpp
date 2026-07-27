@@ -125,6 +125,29 @@ void poscmd_publisher::setNewFlightPath( TrajBase * traj){
 
 
 
+void poscmd_publisher::holdTrajectoryStart(TrajBase * traj){
+	Eigen::MatrixXd pt = traj->evalTraj(0.0);
+	quadrotor_msgs::msg::PositionCommand point;
+	point.position.x = pt(0,0);
+	point.position.y = pt(0,1);
+	point.position.z = pt(0,2);
+	// velocity/acceleration/jerk deliberately left at zero: this is a hold at
+	// the plan's start point, not the plan being flown, so nothing downstream
+	// should see a feedforward term for motion that isn't happening yet.
+	point.yaw = pt(0,3);
+	point.yaw_dot = 0;
+	for(int i = 0; i < 3; i++){
+		point.kx[i] = kx;
+		point.kv[i] = kv;
+	}
+	point.header.frame_id = frame_id;
+	finalState = point;
+	currTraj = traj;
+	// HOVER (not FLIGHT): the timer republishes finalState verbatim and never
+	// advances traj_time, so the clock only starts at the later startFlight().
+	state = HOVER;
+}
+
 int poscmd_publisher::getState(){
 	return state;
 }
