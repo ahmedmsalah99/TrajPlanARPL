@@ -90,6 +90,19 @@ rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_stop_replan_;
 // untouched. g_haveFrozenTarget resets on stop_replan, so the next
 // offboard-enable captures a fresh target rather than reusing a stale one.
 bool g_freezeTargetOnOffboard = false;
+
+// Hold the solved plan without starting its clock until offboard is actually
+// enabled. poscmd_publisher's trajectory clock starts at startFlight(), so
+// starting it at solve time means the plan is consumed while the vehicle is
+// still under RC/position hold -- and a short plan runs out entirely before
+// the operator flips to offboard. What is then being published is the
+// trajectory's TERMINAL setpoint, held, so offboard engages against a large
+// position step rather than a trajectory, and the vehicle step-responds to it
+// (overshooting, and moving faster than the plan ever asked for). Only the
+// visual replan path escaped this, because its idle re-solve loop kept
+// calling startFlight() and so kept resetting the clock. Set false for
+// sim/bench runs that never call start_replan, otherwise nothing would fly.
+bool g_waitForOffboard = true;
 bool g_haveFrozenTarget = false;
 Eigen::Matrix4d g_frozenTarget = Eigen::Matrix4d::Identity();
 
@@ -364,6 +377,8 @@ void init_params(){
 
 	// [DEBUG] See g_freezeTargetOnOffboard declaration comment above.
 	g_freezeTargetOnOffboard = getParamOr<bool>("freeze_target_on_offboard", false);
+	// See the g_waitForOffboard declaration comment above.
+	g_waitForOffboard = getParamOr<bool>("wait_for_offboard", true);
 
 	// [TRAJ_LOG] Config only -- the files themselves are opened by
 	// startTrajLogging(), called from start_replan's handler once offboard is
@@ -448,6 +463,27 @@ bool waitForVisualTarget(Eigen::Matrix4d * H){
 	return false;
 }
 
+// Blocks (spinning) until start_replan fires, i.e. until the bridge has
+// confirmed PX4 is actually in OFFBOARD. Returns false only if the node starts
+// shutting down first, or immediately true when g_waitForOffboard is off.
+// See the g_waitForOffboard declaration comment for why this gate exists.
+bool waitForOffboardEnabled(){
+	if(!g_waitForOffboard || g_replanEnabled.load()){
+		return true;
+	}
+	std::cout << "[OFFBOARD_GATE] plan solved -- holding its start setpoint until "
+	          << "offboard is enabled before starting the trajectory clock..." << std::endl;
+	while(rclcpp::ok()){
+		rclcpp::spin_some(node);
+		if(g_replanEnabled.load()){
+			std::cout << "[OFFBOARD_GATE] offboard enabled -- starting the flight." << std::endl;
+			return true;
+		}
+		rclcpp::sleep_for(20ms);
+	}
+	return false;
+}
+
 void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * controller, TrajBase * traj){
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, false);
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
@@ -479,7 +515,15 @@ void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * cont
 	auto transition_cmd = std::make_shared<trackers_msgs::srv::Transition::Request>();
 	transition_cmd->tracker = null_tracker_str;
 	srv_transition_->async_send_request(transition_cmd);
-	//poscmd transition
+	//poscmd transition -- not until offboard is live, so the trajectory isn't
+	//consumed (or finished outright) before the vehicle is being driven by it.
+	//Hold the plan's START setpoint meanwhile: that keeps the stream PX4 (and
+	//the bridge's own staleness check) needs in order to grant offboard, and
+	//it holds the vehicle where the plan begins instead of where it ends.
+	controller->holdTrajectoryStart(traj);
+	if(!waitForOffboardEnabled()){
+		return; // shutting down while still waiting
+	}
 	controller->startFlight( traj);
 	while(controller->getState() != HOVER && rclcpp::ok()){
 		rclcpp::spin_some(node);
@@ -531,6 +575,17 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	auto transition_cmd = std::make_shared<trackers_msgs::srv::Transition::Request>();
 	transition_cmd->tracker = null_tracker_str;
 	srv_transition_->async_send_request(transition_cmd);
+	// Only gate the non-visual path. The visual path must fall through so its
+	// idle re-solve loop below can keep the initial plan aimed at the moving
+	// target while waiting for offboard -- and since every one of those
+	// re-solves calls startFlight() again, its clock is already being reset
+	// continuously, so it never runs the trajectory down before offboard.
+	if(!useVisual){
+		controller->holdTrajectoryStart(traj_use);
+		if(!waitForOffboardEnabled()){
+			return; // shutting down while still waiting
+		}
+	}
 	controller->startFlight(traj_use);
 	double t0 = node->now().seconds() ;
 	double replan_time = g_replan_time;

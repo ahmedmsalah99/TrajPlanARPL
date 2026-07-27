@@ -44,6 +44,15 @@ static std::vector<quadrotor_msgs::msg::PositionCommand>  arplCMDlist(double dt,
 
 void startFlight(TrajBase * traj);
 
+//Publish the trajectory's t=0 setpoint continuously, WITHOUT starting the
+//trajectory clock. Used while waiting for offboard to be enabled: PX4 needs an
+//already-flowing setpoint stream before it will accept OFFBOARD at all, so
+//publishing nothing until the flight starts would deadlock against a bridge
+//that refuses to enable offboard on a stale command. Holding the plan's START
+//point (rather than letting the clock run out and holding its END point) also
+//means offboard engages with the vehicle already where the trajectory begins.
+void holdTrajectoryStart(TrajBase * traj);
+
 void setEND();
 //Timer Callback
 void timerCallback();
