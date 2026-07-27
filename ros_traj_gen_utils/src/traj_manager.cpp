@@ -21,6 +21,7 @@
 #include <trackers_msgs/srv/transition.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
+#include <px4_msgs/msg/vehicle_status.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 
@@ -41,6 +42,7 @@ apriltag_utils aprilListen;
 rclcpp::Client<trackers_msgs::srv::Transition>::SharedPtr srv_transition_;
 rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr hover_;
 rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr subOdomMsg;
+rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr subVehicleStatus;
 rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr subApril;
 // world -> odom: republished every /fmu/out/vehicle_odometry callback, since
 // the vehicle (and therefore this offset) keeps moving. Without this, nothing
@@ -91,6 +93,14 @@ rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_stop_replan_;
 // offboard-enable captures a fresh target rather than reusing a stale one.
 bool g_freezeTargetOnOffboard = false;
 
+// Is PX4 actually in OFFBOARD right now? Read straight from the flight
+// controller's own VehicleStatus, NOT inferred from g_replanEnabled: that flag
+// means "replanning is on", and is only related to offboard at all because
+// offboard_bridge happens to call start_replan once it has confirmed the mode
+// switch. Tying the flight start to it would mean a replan:false run never
+// takes off, and would silently depend on which bridge is driving the vehicle.
+std::atomic<bool> g_offboardActive{false};
+
 // Hold the solved plan without starting its clock until offboard is actually
 // enabled. poscmd_publisher's trajectory clock starts at startFlight(), so
 // starting it at solve time means the plan is consumed while the vehicle is
@@ -101,7 +111,8 @@ bool g_freezeTargetOnOffboard = false;
 // (overshooting, and moving faster than the plan ever asked for). Only the
 // visual replan path escaped this, because its idle re-solve loop kept
 // calling startFlight() and so kept resetting the clock. Set false for
-// sim/bench runs that never call start_replan, otherwise nothing would fly.
+// sim/bench runs with no flight controller publishing VehicleStatus,
+// otherwise nothing would ever fly.
 bool g_waitForOffboard = true;
 bool g_haveFrozenTarget = false;
 Eigen::Matrix4d g_frozenTarget = Eigen::Matrix4d::Identity();
@@ -312,6 +323,14 @@ void init_params(){
 		usePerch = true;
 		std::cout << " WE ARE USING A TARGET " << target <<std::endl;
 	}
+	// Authoritative offboard state, straight from PX4 -- see g_offboardActive.
+	subVehicleStatus = node->create_subscription<px4_msgs::msg::VehicleStatus>(
+		"/fmu/out/vehicle_status_v1", best_effort_qos,
+		[](const px4_msgs::msg::VehicleStatus &msg){
+			g_offboardActive.store(
+				msg.nav_state == px4_msgs::msg::VehicleStatus::NAVIGATION_STATE_OFFBOARD);
+		});
+
 	std::string odom_topic = "/fmu/out/vehicle_odometry";
 	
 	subOdomMsg = node->create_subscription<px4_msgs::msg::VehicleOdometry>(
@@ -463,20 +482,20 @@ bool waitForVisualTarget(Eigen::Matrix4d * H){
 	return false;
 }
 
-// Blocks (spinning) until start_replan fires, i.e. until the bridge has
-// confirmed PX4 is actually in OFFBOARD. Returns false only if the node starts
-// shutting down first, or immediately true when g_waitForOffboard is off.
-// See the g_waitForOffboard declaration comment for why this gate exists.
+// Blocks (spinning) until PX4 reports it is in OFFBOARD. Returns false only if
+// the node starts shutting down first, or immediately true when
+// g_waitForOffboard is off. Independent of replanning: see the
+// g_offboardActive and g_waitForOffboard declaration comments.
 bool waitForOffboardEnabled(){
-	if(!g_waitForOffboard || g_replanEnabled.load()){
+	if(!g_waitForOffboard || g_offboardActive.load()){
 		return true;
 	}
 	std::cout << "[OFFBOARD_GATE] plan solved -- holding its start setpoint until "
-	          << "offboard is enabled before starting the trajectory clock..." << std::endl;
+	          << "PX4 reports OFFBOARD before starting the trajectory clock..." << std::endl;
 	while(rclcpp::ok()){
 		rclcpp::spin_some(node);
-		if(g_replanEnabled.load()){
-			std::cout << "[OFFBOARD_GATE] offboard enabled -- starting the flight." << std::endl;
+		if(g_offboardActive.load()){
+			std::cout << "[OFFBOARD_GATE] offboard active -- starting the flight." << std::endl;
 			return true;
 		}
 		rclcpp::sleep_for(20ms);
