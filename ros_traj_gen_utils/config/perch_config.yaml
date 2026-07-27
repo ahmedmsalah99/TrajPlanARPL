@@ -7,9 +7,41 @@ traj_exe:
     replan: true             # perching uses online replanning
     display_2D: true        # publish 2D velocity/acceleration paths
     use_sim_time: true
-    # Dynamic limits used for time allocation
-    v_max: 10.0               # max velocity (m/s)
-    a_max: 15.0              # max acceleration (m/s^2)
+    # Dynamic limits used for time allocation. minimizeTime() shrinks the
+    # segment times until the trajectory's peak velocity/acceleration reaches
+    # these, so they are targets, not just ceilings -- whatever is set here is
+    # very nearly what the plan will demand.
+    #
+    # With the MPC_* limits raised well above these, PX4 no longer clamps the
+    # setpoint -- so the binding constraint is now the airframe itself, and
+    # a_max is what has to respect it:
+    #
+    #   downward accel is capped at free fall, 9.81 m/s^2, at zero thrust. No
+    #     multirotor exceeds it, whatever MPC_ACC_DOWN_MAX says.
+    #   upward accel is capped at (T/W - 1)*9.81, and MPC_THR_HOVER gives T/W
+    #     directly -- see the 0.6 figure below, which is the binding one here.
+    #   horizontal accel is capped at 9.81*tan(MPC_TILTMAX_AIR) = 9.81 m/s^2 at
+    #     the 45 deg currently set.
+    #
+    # The previous a_max of 15 sat above all three: minimizeTime() drove the
+    # plan to ~14 m/s^2, i.e. ~1.5 g, which is past free fall going down and
+    # needs T/W ~ 2.5 going up. Unclamped, that does not become flyable -- it
+    # just relocates the truncation from PX4's setpoint limiter to actuator
+    # saturation, which is far harder to see in a log.
+    #
+    # MPC_THR_HOVER on this airframe is 0.6, i.e. hover already costs 60% of
+    # available throttle, so thrust-to-weight is only 1/0.6 = 1.67 and the
+    # upward ceiling is 9.81*(1/0.6 - 1) = 6.5 m/s^2 -- well under free fall,
+    # which makes UP the binding direction (and the one that matters, since
+    # arresting a descent onto a pad is upward acceleration).
+    #
+    # a_max is deliberately ~60% of that 6.5. The planner's acceleration is a
+    # feedforward term and PX4 adds its own feedback correction on top; if the
+    # feedforward alone claimed the whole thrust budget there would be no
+    # authority left to correct tracking error with, which is the failure this
+    # is meant to avoid.
+    v_max: 5.0               # max velocity (m/s), ~3.1 m stopping distance
+    a_max: 4.0              # max acceleration (m/s^2), ~60% of the 6.5 ceiling
     # Perching parameters
     max_inclination_accel: 10.0  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
     impact_normal_vel: 2.0      # vS1: impact speed INTO the surface (m/s)
@@ -47,8 +79,12 @@ traj_exe:
     # that derivative order's limit. If perching is enabled and the target's
     # required terminal horizontal accel/impact velocity would exceed these,
     # the plan is rejected (logged) rather than generated infeasible.
-    horiz_vel_limit: 10.0        # m/s, sqrt(vx^2+vy^2) <= this (0 = disabled)
-    horiz_accel_limit: 15.0      # m/s^2, sqrt(ax^2+ay^2) <= this (0 = disabled)
+    # Matched to v_max/a_max above. The previous 10.0/15.0 could never be
+    # reached: horizontal accel is capped at 9.81*tan(MPC_TILTMAX_AIR) = 9.81
+    # m/s^2 at the 45 deg set on this airframe, and the isotropic v_max already
+    # bounds horizontal speed below 10 anyway, so both were inert.
+    horiz_vel_limit: 5.0        # m/s, sqrt(vx^2+vy^2) <= this (0 = disabled)
+    horiz_accel_limit: 4.0      # m/s^2, sqrt(ax^2+ay^2) <= this (0 = disabled)
     horiz_jerk_limit: 20.0       # m/s^3, sqrt(jx^2+jy^2) <= this (0 = disabled)
     # Sampling step (s) for every per-vertex sampled inequality: the perch
     # eq.(14) band, min-altitude, and the horizontal limits above. Coarsened
