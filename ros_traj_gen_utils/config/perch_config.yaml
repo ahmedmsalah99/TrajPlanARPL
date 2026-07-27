@@ -4,17 +4,18 @@ traj_exe:
     odom_frame: "/odom"      # odometry frame; planner subscribes to <device><odom_frame>
     # odom_frame: "/quadrotor_ukf/control_odom"  # for simulation
     visual: true            # use visual feedback from an apriltag
-    replan: true             # perching uses online replanning
+    replan: false             # perching uses online replanning
     display_2D: true        # publish 2D velocity/acceleration paths
     use_sim_time: true
     # Dynamic limits used for time allocation
-    v_max: 10.0               # max velocity (m/s)
-    a_max: 15.0              # max acceleration (m/s^2)
+    v_max: 5.0               # max velocity (m/s)
+    a_max: 4.0              # max acceleration (m/s^2)
     # Perching parameters
     max_inclination_accel: 10.0  # contact specific-thrust (m/s^2) at a vertical surface; scaled by sin(inclination)
     impact_normal_vel: 2.0      # vS1: impact speed INTO the surface (m/s)
     impact_slide_vel: 0.0      # vS3: impact speed ALONG the surface, down-slope (m/s)
     min_pitch: 0.5              # inclination below this (rad) -> soft landing
+    freeze_target_on_offboard: true
     # eq.(14) approach band (acceleration kept near the target before impact)
     perch_band_q: 2.0           # (1+q) magnitude tolerance of the band
     perch_window: 0.5           # window before impact (s) over which the band is enforced
@@ -47,8 +48,8 @@ traj_exe:
     # that derivative order's limit. If perching is enabled and the target's
     # required terminal horizontal accel/impact velocity would exceed these,
     # the plan is rejected (logged) rather than generated infeasible.
-    horiz_vel_limit: 10.0        # m/s, sqrt(vx^2+vy^2) <= this (0 = disabled)
-    horiz_accel_limit: 15.0      # m/s^2, sqrt(ax^2+ay^2) <= this (0 = disabled)
+    horiz_vel_limit: 5.0        # m/s, sqrt(vx^2+vy^2) <= this (0 = disabled)
+    horiz_accel_limit: 4.0      # m/s^2, sqrt(ax^2+ay^2) <= this (0 = disabled)
     horiz_jerk_limit: 20.0       # m/s^3, sqrt(jx^2+jy^2) <= this (0 = disabled)
     # Sampling step (s) for every per-vertex sampled inequality: the perch
     # eq.(14) band, min-altitude, and the horizontal limits above. Coarsened

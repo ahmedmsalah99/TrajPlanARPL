@@ -99,7 +99,7 @@ def main():
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('planned_csv', nargs='?', default='/tmp/planned_trajectories.csv')
     parser.add_argument('actual_csv', nargs='?', default='/tmp/actual_trajectory.csv')
-    parser.add_argument('--num-planned', type=int, default=5,
+    parser.add_argument('--num-planned', type=int, default=10,
                          help='how many equally-spaced planned snapshots to overlay')
     args = parser.parse_args()
 
