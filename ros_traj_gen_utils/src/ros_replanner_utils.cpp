@@ -196,7 +196,10 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	//ros::spinOnce();
 	bool use_odom =false; 
 	double t0 = rclcpp::Clock().now().seconds() ;
-	if(odom_l->getCurrOdom(&current_heading)){
+	// anchorOdom==false takes the predictive-continuation branch below, which
+	// keeps the trajectory advancing on its own timeline instead of being
+	// re-pinned onto the vehicle every cycle -- see setAnchorOdom().
+	if(odom_l->getCurrOdom(&current_heading) && anchorOdom){
 		use_odom = true;
 	}
 	//std::cout << current_heading.pose.pose << std::endl;
@@ -525,4 +528,8 @@ void ros_replan_utils::setReplanParams(double step, int maxRetries, double minSe
 	retryStep = step;
 	retryMax = maxRetries;
 	minSegTime = minSeg;
+}
+
+void ros_replan_utils::setAnchorOdom(bool in){
+	anchorOdom = in;
 }

@@ -26,6 +26,18 @@ traj_exe:
     replan_retry_step: 0.2      # seconds added to segment time(s) per failed solve
     replan_retry_max: 10        # max solve retries before giving up / reverting
     replan_min_seg: 1.0         # (has to be longer than perch_window) segments shorter than this (s) are merged/skipped
+    # What each replan anchors its new plan's start state to.
+    #   true  (default): the measured odometry. This re-pins the setpoint onto
+    #         the vehicle every cycle, which also zeroes the tracking error PX4
+    #         is acting on. Since the plan's own acceleration feedforward
+    #         starts at zero and only reaches ~0.003 m/s^2 by t_off, that error
+    #         is effectively the only thing driving the vehicle -- so wiping it
+    #         every cycle makes the vehicle decelerate at each replan and
+    #         accelerate again between them (a visible stutter).
+    #   false: the previous plan's predicted state, so the trajectory advances
+    #         on its own timeline, the tracking error survives the replan, and
+    #         the acceleration profile is allowed to develop.
+    replan_anchor_odom: true
     # Field-of-view constraint
     fov_enable: true            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
