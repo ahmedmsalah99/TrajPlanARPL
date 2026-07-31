@@ -69,6 +69,11 @@ double g_replan_t_off = 0.05;
 double g_replan_retry_step = 0.2;
 int g_replan_retry_max = 10;
 double g_replan_min_seg = 0.5;
+// What replan() anchors each new plan's start state to. True (default) keeps
+// the existing behaviour of re-pinning it to the measured odometry every
+// cycle; false continues from the previous plan's predicted state instead.
+// See ros_replan_utils::setAnchorOdom() for why that distinction matters.
+bool g_replan_anchor_odom = true;
 bool g_fov_enable = true;
 double g_fov_coverage_fraction = 0.5;
 // Gates executeReplanTraj's replan() loop: the initial plan is always solved
@@ -391,6 +396,8 @@ void init_params(){
 	g_replan_retry_step = getParamOr<double>("replan_retry_step", 0.2);
 	g_replan_retry_max = getParamOr<int>("replan_retry_max", 10);
 	g_replan_min_seg = getParamOr<double>("replan_min_seg", 0.5);
+	// See the g_replan_anchor_odom declaration comment above.
+	g_replan_anchor_odom = getParamOr<bool>("replan_anchor_odom", true);
 	g_fov_enable = getParamOr<bool>("fov_enable", true);
 	g_fov_coverage_fraction = getParamOr<double>("fov_coverage_fraction", 0.5);
 
@@ -586,6 +593,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	std::cout << "preparation initial plan " <<std::endl;
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, useVisual);
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
+	replanner.setAnchorOdom(g_replan_anchor_odom);
 	replanner.setFOVEnable(g_fov_enable);
 	replanner.setFOVCoverageFraction(g_fov_coverage_fraction);
 	bool initial_ok;
