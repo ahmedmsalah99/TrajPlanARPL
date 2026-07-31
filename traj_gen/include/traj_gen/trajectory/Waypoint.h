@@ -8,6 +8,12 @@
 typedef struct {
     int derivOrder = 0;
     double timeOffset = 0.0;
+    //Seconds before this vertex where sampling STOPS. timeOffset opens the
+    //window at (time - timeOffset); endOffset closes it at (time - endOffset)
+    //instead of at the vertex itself, so the tail of the segment is left
+    //unconstrained. 0 keeps the original behaviour (sample right up to the
+    //vertex).
+    double endOffset = 0.0;
     Eigen::Vector4d lower, upper;
     Eigen::Vector4d InEqDim; //Declares wether this constraint is active or not
 } waypoint_ineq_const;
