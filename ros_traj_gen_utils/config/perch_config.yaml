@@ -4,7 +4,7 @@ traj_exe:
     odom_frame: "/odom"      # odometry frame; planner subscribes to <device><odom_frame>
     # odom_frame: "/quadrotor_ukf/control_odom"  # for simulation
     visual: true            # use visual feedback from an apriltag
-    replan: false             # perching uses online replanning
+    replan: true             # perching uses online replanning
     display_2D: true        # publish 2D velocity/acceleration paths
     use_sim_time: true
     # Dynamic limits used for time allocation
@@ -21,7 +21,7 @@ traj_exe:
     perch_window: 0.5           # window before impact (s) over which the band is enforced
     perch_band_eps: 0.2         # additive slack so the band never collapses to a point
     # Replanner timing / retry
-    replan_time: 0.04           # replanning period (s)
+    replan_time: 0.5           # replanning period (s)
     replan_t_off: 0.05          # look-ahead offset used when re-anchoring the plan (s)
     replan_retry_step: 0.2      # seconds added to segment time(s) per failed solve
     replan_retry_max: 10        # max solve retries before giving up / reverting
@@ -37,7 +37,7 @@ traj_exe:
     #   false: the previous plan's predicted state, so the trajectory advances
     #         on its own timeline, the tracking error survives the replan, and
     #         the acceleration profile is allowed to develop.
-    replan_anchor_odom: true
+    replan_anchor_odom: false
     # Field-of-view constraint
     fov_enable: true            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
