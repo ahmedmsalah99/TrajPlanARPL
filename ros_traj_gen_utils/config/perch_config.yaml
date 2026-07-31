@@ -20,6 +20,7 @@ traj_exe:
     perch_band_q: 2.0           # (1+q) magnitude tolerance of the band
     perch_window: 0.5           # window before impact (s) over which the band is enforced
     perch_band_eps: 0.2         # additive slack so the band never collapses to a point
+    traj_save_period_s: 0.0
     # Replanner timing / retry
     replan_time: 0.5           # replanning period (s)
     replan_t_off: 0.05          # look-ahead offset used when re-anchoring the plan (s)
