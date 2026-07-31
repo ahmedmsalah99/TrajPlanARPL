@@ -2,6 +2,20 @@
 #include <ros_traj_gen_utils/ros_traj_utils.h>
 #include <iostream>
 #include <algorithm>
+
+namespace {
+// status entries are (pos, vel, accel, jerk, snap); 1 constrains that order.
+// Keep the first three -- they make the commanded thrust/tilt continuous --
+// and release the top two so the optimizer can choose them.
+void relaxStartJerkSnap(waypoint * w){
+	Eigen::VectorXd st = w->getStatus();
+	if(st.rows() >= 5){
+		st[3] = 0;
+		st[4] = 0;
+		w->setStatus(st);
+	}
+}
+} // namespace
 using namespace std;
 
 ros_replan_utils::ros_replan_utils(){
@@ -45,6 +59,9 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 	nav_msgs::msg::Odometry current_heading;
 	if(odom_l->getCurrOdom(&current_heading)){
 		waypoint start(current_heading);
+		if(freeStartJerkSnap){
+			relaxStartJerkSnap(&start);
+		}
 		trajectory->push_back(start);
 	}
 	trajectory->vertices.clear();
@@ -104,6 +121,9 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 
 	if(odom_l->getCurrOdom(&current_heading)){
 		waypoint start(current_heading);
+		if(freeStartJerkSnap){
+			relaxStartJerkSnap(&start);
+		}
 		trajectory->push_back(start);
 	}
         //std::cout << "first point pushed " <<std::endl;
@@ -246,6 +266,10 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	start.setAccel(accel);
 	start.setJerk(jerk);
 	start.setSnap(snap);
+	// Must come after the setters -- each of them re-asserts its status entry.
+	if(freeStartJerkSnap){
+		relaxStartJerkSnap(&start);
+	}
 	//Save your Previous Trajectory in case we need to revert.
 	std::vector<waypoint> vertices_prev =  trajectory->vertices;
 	Eigen::MatrixXd coeffSolved_prev = trajectory->coeffSolved;
@@ -539,4 +563,8 @@ void ros_replan_utils::setAnchorOdom(bool in){
 
 void ros_replan_utils::setOdomBlend(double in){
 	odomBlend = in;
+}
+
+void ros_replan_utils::setFreeStartJerkSnap(bool in){
+	freeStartJerkSnap = in;
 }

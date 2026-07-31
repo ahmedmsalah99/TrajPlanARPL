@@ -31,6 +31,9 @@ bool visualFeedback = false;
 // and setOdomBlend(). anchorOdom==false forces the blend to 0.
 bool anchorOdom = true;
 double odomBlend = 1.0;
+// Whether the start waypoint leaves jerk and snap free for the optimizer.
+// See setFreeStartJerkSnap().
+bool freeStartJerkSnap = false;
 bool fovEnable = false;
 // Fraction of the remaining segment's duration (measured from the current
 // replan point) over which the FOV constraint is enforced; the rest of the
@@ -91,6 +94,20 @@ void setReplanParams(double step, int maxRetries, double minSeg);
 //      the acceleration profile develop, while the error stays bounded.
 //      Start around 0.1-0.3.
 void setOdomBlend(double in);
+
+//Leave jerk and snap free at each plan's start waypoint, instead of pinning
+//them (to zero for an initial plan, or to the previous plan's values for a
+//replan).
+//
+//Position, velocity and acceleration stay constrained either way, so the
+//commanded thrust/tilt is still continuous across a replan. But constraining
+//jerk AND snap on top of that means a(0)=0, a'(0)=0 and a''(0)=0 for an
+//initial plan, so acceleration can only leave the origin as O(t^3) -- the
+//plan spends its first second barely accelerating, and its feedforward is
+//~0.003 m/s^2 at t_off. Freeing the top two orders lets the optimizer ramp
+//acceleration immediately (a ~ j(0)*t), so the plan itself drives the vehicle
+//rather than relying on position error to do it.
+void setFreeStartJerkSnap(bool in);
 
 //Coarse switch kept for existing configs: false forces the blend above to 0,
 //true leaves it at whatever setOdomBlend() was given.
