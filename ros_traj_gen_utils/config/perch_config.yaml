@@ -49,7 +49,7 @@ traj_exe:
     # first second barely accelerating and its feedforward is ~0.003 m/s^2 at
     # t_off. Freeing them lets acceleration ramp immediately, so the plan
     # drives the vehicle instead of leaning on position error to do it.
-    free_start_jerk_snap: false
+    free_start_jerk_snap: true
     # Field-of-view constraint
     fov_enable: true            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
