@@ -196,12 +196,13 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	//ros::spinOnce();
 	bool use_odom =false; 
 	double t0 = rclcpp::Clock().now().seconds() ;
-	// anchorOdom==false takes the predictive-continuation branch below, which
-	// keeps the trajectory advancing on its own timeline instead of being
-	// re-pinned onto the vehicle every cycle -- see setAnchorOdom().
-	if(odom_l->getCurrOdom(&current_heading) && anchorOdom){
+	// The blend below decides how much of the measured tracking error is folded
+	// into the new plan's start state -- see setOdomBlend(). anchorOdom==false
+	// forces it to zero (pure predictive continuation).
+	if(odom_l->getCurrOdom(&current_heading)){
 		use_odom = true;
 	}
+	const double blend = anchorOdom ? odomBlend : 0.0;
 	//std::cout << current_heading.pose.pose << std::endl;
 	//while(!odom_l.getCurrOdom(&current_heading)){
 	//	ros::spinOnce();
@@ -223,10 +224,12 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	start.getVelo(&odom_vel);
 	for(int i =0; i<4;i++){
 		if(use_odom){
-			//pos[i] = odom_pos(i);
-			//vel[i] = odom_vel(i);
-			pos[i] = point_info_2(0,i)-point_info(0,i)+odom_pos(i);
-			vel[i] = point_info_2(1,i)-point_info(1,i)+odom_vel(i);
+			// point_info is where the OLD plan expected the vehicle to be right
+			// now, so (odom - point_info) is the tracking error. Fold in the
+			// configured fraction of it: blend==1 reproduces the original
+			// full re-pin onto odometry, blend==0 pure prediction.
+			pos[i] = point_info_2(0,i) + blend*(odom_pos(i)-point_info(0,i));
+			vel[i] = point_info_2(1,i) + blend*(odom_vel(i)-point_info(1,i));
 		}
 		else{
 			pos[i] = point_info_2(0,i);
@@ -532,4 +535,8 @@ void ros_replan_utils::setReplanParams(double step, int maxRetries, double minSe
 
 void ros_replan_utils::setAnchorOdom(bool in){
 	anchorOdom = in;
+}
+
+void ros_replan_utils::setOdomBlend(double in){
+	odomBlend = in;
 }

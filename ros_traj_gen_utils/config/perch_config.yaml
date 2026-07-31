@@ -26,18 +26,20 @@ traj_exe:
     replan_retry_step: 0.2      # seconds added to segment time(s) per failed solve
     replan_retry_max: 10        # max solve retries before giving up / reverting
     replan_min_seg: 1.0         # (has to be longer than perch_window) segments shorter than this (s) are merged/skipped
-    # What each replan anchors its new plan's start state to.
-    #   true  (default): the measured odometry. This re-pins the setpoint onto
-    #         the vehicle every cycle, which also zeroes the tracking error PX4
-    #         is acting on. Since the plan's own acceleration feedforward
-    #         starts at zero and only reaches ~0.003 m/s^2 by t_off, that error
-    #         is effectively the only thing driving the vehicle -- so wiping it
-    #         every cycle makes the vehicle decelerate at each replan and
-    #         accelerate again between them (a visible stutter).
-    #   false: the previous plan's predicted state, so the trajectory advances
-    #         on its own timeline, the tracking error survives the replan, and
-    #         the acceleration profile is allowed to develop.
-    replan_anchor_odom: false
+    # Coarse switch kept for existing configs: false forces replan_odom_blend
+    # below to 0.0 (pure predictive continuation). Leave true and use the blend.
+    replan_anchor_odom: true
+    # Fraction of the measured tracking error each replan folds into the new
+    # plan's start state. (The replanner knows where the old plan expected the
+    # vehicle to be now, so that difference IS the tracking error.)
+    #   1.0: all of it -- re-pins the setpoint onto the vehicle and zeroes the
+    #        error PX4 is acting on, producing the stutter.
+    #   0.0: none -- pure prediction, no feedback; measured in flight as plans
+    #        running 2.6 m ahead of the vehicle and diverging without bound.
+    #   0.1-0.3: keeps enough setpoint lead to drive the vehicle while holding
+    #        the error bounded. Start here.
+    # Ignored (treated as 0.0) when replan_anchor_odom is false.
+    replan_odom_blend: 0.2
     # Field-of-view constraint
     fov_enable: true            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
