@@ -74,6 +74,11 @@ double g_replan_min_seg = 0.5;
 // cycle; false continues from the previous plan's predicted state instead.
 // See ros_replan_utils::setAnchorOdom() for why that distinction matters.
 bool g_replan_anchor_odom = true;
+// Fraction of the measured tracking error each replan folds into the new
+// plan's start state. 1.0 reproduces the original full re-pin onto odometry,
+// 0.0 is pure predictive continuation, in between keeps the setpoint's lead
+// while bounding drift. See ros_replan_utils::setOdomBlend().
+double g_replan_odom_blend = 1.0;
 bool g_fov_enable = true;
 double g_fov_coverage_fraction = 0.5;
 // Gates executeReplanTraj's replan() loop: the initial plan is always solved
@@ -398,6 +403,8 @@ void init_params(){
 	g_replan_min_seg = getParamOr<double>("replan_min_seg", 0.5);
 	// See the g_replan_anchor_odom declaration comment above.
 	g_replan_anchor_odom = getParamOr<bool>("replan_anchor_odom", true);
+	// See the g_replan_odom_blend declaration comment above.
+	g_replan_odom_blend = getParamOr<double>("replan_odom_blend", 1.0);
 	g_fov_enable = getParamOr<bool>("fov_enable", true);
 	g_fov_coverage_fraction = getParamOr<double>("fov_coverage_fraction", 0.5);
 
@@ -594,6 +601,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, useVisual);
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
 	replanner.setAnchorOdom(g_replan_anchor_odom);
+	replanner.setOdomBlend(g_replan_odom_blend);
 	replanner.setFOVEnable(g_fov_enable);
 	replanner.setFOVCoverageFraction(g_fov_coverage_fraction);
 	bool initial_ok;

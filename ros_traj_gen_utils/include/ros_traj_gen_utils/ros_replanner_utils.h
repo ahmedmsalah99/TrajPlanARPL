@@ -27,10 +27,10 @@ int curr_v =0;
 //NEW PLAN WHAT IS A GOOD IDEA HERE
 //Target updates
 bool visualFeedback = false;
-// How replan() anchors each new plan's start state. True (default) re-pins it
-// to the measured odometry every cycle; false continues from where the
-// previous plan predicted the vehicle would be. See setAnchorOdom().
+// How replan() anchors each new plan's start state -- see setAnchorOdom()
+// and setOdomBlend(). anchorOdom==false forces the blend to 0.
 bool anchorOdom = true;
+double odomBlend = 1.0;
 bool fovEnable = false;
 // Fraction of the remaining segment's duration (measured from the current
 // replan point) over which the FOV constraint is enforced; the rest of the
@@ -67,24 +67,33 @@ void setFOVCoverageFraction(double frac);
 void setTime(std::vector<double> times_in);
 //Configure retry tuning (step seconds, max retries, min segment time)
 void setReplanParams(double step, int maxRetries, double minSeg);
-//Choose what replan() anchors a new plan's start position/velocity to.
+//How much of the measured tracking error each replan folds into the new
+//plan's start state. replan() knows where the old plan expected the vehicle
+//to be right now (point_info), so (odom - point_info) IS the tracking error,
+//and this is the fraction of it applied:
 //
-//  true  (default, unchanged behaviour): the measured odometry, plus the
-//        displacement the old plan covers over t_off. This re-pins the
-//        setpoint onto the vehicle every replan, which also resets the
-//        tracking error PX4 is acting on -- and since the plan's own
-//        acceleration feedforward starts at zero (waypoint's odometry
-//        constructor constrains accel/jerk/snap to 0, so accel leaves the
-//        origin as O(t^3) and is still ~0.003 m/s^2 at t_off), that error is
-//        effectively the only thing driving the vehicle. Wiping it every
-//        cycle makes the vehicle decelerate at each replan and accelerate
-//        again between them.
+//  1.0 (default, unchanged behaviour): the whole error, every cycle. This
+//      re-pins the setpoint onto the vehicle and so zeroes the error PX4 is
+//      acting on. Since the plan's own acceleration feedforward starts at
+//      zero (waypoint's odometry constructor constrains accel/jerk/snap to 0,
+//      so accel leaves the origin as O(t^3) and is ~0.003 m/s^2 at t_off),
+//      that error is effectively the only thing driving the vehicle -- wiping
+//      it each cycle makes the vehicle decelerate at every replan and
+//      accelerate between them, a visible stutter.
 //
-//  false: the previous plan's predicted state at the same instant. The
-//        trajectory then advances on its own timeline, the tracking error
-//        survives the replan, and the acceleration profile is allowed to
-//        develop. Drift is not corrected here, but PX4 closes the position
-//        loop against the setpoint anyway.
+//  0.0: none of it. The trajectory advances purely on its own predicted
+//      timeline, which removes the stutter but leaves no feedback at all --
+//      measured in flight, successive plans ran 2.6 m ahead of the vehicle in
+//      y and ~2 m in z, diverging without bound while the vehicle chased a
+//      runaway setpoint above the plan's own peak velocity.
+//
+//  in between: the setpoint keeps enough lead to drive the vehicle and let
+//      the acceleration profile develop, while the error stays bounded.
+//      Start around 0.1-0.3.
+void setOdomBlend(double in);
+
+//Coarse switch kept for existing configs: false forces the blend above to 0,
+//true leaves it at whatever setOdomBlend() was given.
 void setAnchorOdom(bool in);
 
 };
