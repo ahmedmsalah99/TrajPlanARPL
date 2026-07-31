@@ -503,24 +503,29 @@ bool waitForOffboardEnabled(){
 	return false;
 }
 
-void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * controller, TrajBase * traj){
-	ros_replan_utils replanner(traj, &odomListiner, &vertices, false);
-	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
-	bool initial_ok;
+// Solve the initial plan for whichever targeting mode is configured. Always
+// anchored to the vehicle's CURRENT odometry, so calling it again later
+// re-anchors the plan to wherever the vehicle actually is by then.
+// Returns false on a failed solve, or on shutdown while waiting for a target.
+bool solveInitialPlan(ros_replan_utils * replanner){
 	if(useVisual){
 		Eigen::Matrix4d H;
 		if(!waitForVisualTarget(&H)){
-			return; // shutting down while still waiting
+			return false; // shutting down while still waiting
 		}
-		initial_ok = replanner.initialPlan(3, H);
+		return replanner->initialPlan(3, H);
 	}
-	else if(usePerch){
+	if(usePerch){
 		std::cout << target <<std::endl;
-		initial_ok = replanner.initialPlan(3, target);
+		return replanner->initialPlan(3, target);
 	}
-	else{
-		initial_ok = replanner.initialPlan(4);
-	}
+	return replanner->initialPlan(4);
+}
+
+void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * controller, TrajBase * traj){
+	ros_replan_utils replanner(traj, &odomListiner, &vertices, false);
+	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
+	bool initial_ok = solveInitialPlan(&replanner);
 	if(!initial_ok){
 		std::cout << "[INITIAL_PLAN] FAILED -- not publishing/commanding this trajectory." << std::endl;
 		controller->setEND();
@@ -542,6 +547,23 @@ void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * cont
 	controller->holdTrajectoryStart(traj);
 	if(!waitForOffboardEnabled()){
 		return; // shutting down while still waiting
+	}
+	// Re-anchor before flying. The plan above was solved from a snapshot of the
+	// vehicle's state, and the wait for offboard can be arbitrarily long -- the
+	// vehicle is under RC/position hold throughout it and drifts, or is still
+	// settling from a climb. Starting a stale plan means beginning with a
+	// position AND velocity error the controller has to burn the first seconds
+	// absorbing instead of tracking (measured: 1.3 m and 1.35 m/s of initial
+	// mismatch, with the plan opening in a 1.1 m/s climb the vehicle was no
+	// longer doing). Re-solving here costs one QP and starts the trajectory
+	// from where the vehicle actually is.
+	if(!solveInitialPlan(&replanner)){
+		std::cout << "[OFFBOARD_GATE] re-solve at offboard FAILED -- flying the "
+		          << "plan solved earlier instead." << std::endl;
+	}
+	else{
+		visualize_paths(traj);
+		maybeLogPlannedTrajectory(traj);
 	}
 	controller->startFlight( traj);
 	while(controller->getState() != HOVER && rclcpp::ok()){
