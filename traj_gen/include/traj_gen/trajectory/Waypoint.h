@@ -52,6 +52,11 @@ public:
 	//The order of your polynomial constraint is 0 for pos 1 for velocity etc...
 	int getConstraint(Eigen::VectorXd* output, int order);
 	Eigen::VectorXd getStatus();
+	//Choose which derivative orders are constrained at this waypoint. Entry i
+	//== 1 constrains order i (0=pos, 1=vel, 2=accel, 3=jerk, 4=snap); 0 leaves
+	//it free for the optimizer. getConstraint() only emits an equality row for
+	//entries set to 1, so zeroing an entry genuinely removes that constraint.
+	void setStatus(Eigen::VectorXd input);
 	//Sets the variable throws an exception if your dimensions do not match
 	void setPos(Eigen::VectorXd input);
 	void setVel(Eigen::VectorXd input);

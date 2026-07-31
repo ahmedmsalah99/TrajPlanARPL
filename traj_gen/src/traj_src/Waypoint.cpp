@@ -170,6 +170,16 @@ using namespace std;
 		}
 		return 0;
 	}
+	void waypoint::setStatus(Eigen::VectorXd input) {
+		if (input.rows() == status.rows()){
+			status = input;
+		}
+		else {
+			std::cout << "An exception occurred. New status must have " << status.rows()
+			          << " entries" << '\n';
+		}
+	}
+
 	Eigen::VectorXd waypoint::getStatus() {
 		return status;
 	}

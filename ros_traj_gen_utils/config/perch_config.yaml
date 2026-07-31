@@ -41,6 +41,15 @@ traj_exe:
     #        the error bounded. Start here.
     # Ignored (treated as 0.0) when replan_anchor_odom is false.
     replan_odom_blend: 0.2
+    # Leave jerk and snap free at each plan's start waypoint. Position,
+    # velocity and acceleration stay constrained either way, so the commanded
+    # thrust/tilt is still continuous across a replan -- but pinning jerk and
+    # snap on top of that forces a(0)=a'(0)=a''(0)=0 on an initial plan, so
+    # acceleration can only leave the origin as O(t^3): the plan spends its
+    # first second barely accelerating and its feedforward is ~0.003 m/s^2 at
+    # t_off. Freeing them lets acceleration ramp immediately, so the plan
+    # drives the vehicle instead of leaning on position error to do it.
+    free_start_jerk_snap: false
     # Field-of-view constraint
     fov_enable: true            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
