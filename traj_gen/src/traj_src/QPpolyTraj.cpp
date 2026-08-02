@@ -1045,9 +1045,16 @@ QP_ineq_const QPpolyTraj::genInEqJointConstraint(){
 		for (int i = 1; i < vertices.size();i++){
 			//Count the number of inequality constraints you have
 			for(int j =0; j < vertices[i].ineq_constraint.size(); j++){
-				double toff = vertices[i].ineq_constraint[j].timeOffset;
-				// Must match genInEqConstraint()'s actual sampling step (ineqSampleDt),
-				// since genInEqConstraint(j) is what actually fills these rows below.
+				// MUST stay identical to genInEqConstraint()'s counter: the block
+				// write below is sized from numConstrDim[j] but filled with the
+				// matrix genInEqConstraint(j) allocated from ITS count. If the two
+				// disagree by even one row, assigning the smaller matrix into the
+				// larger block trips Eigen's DenseBase::resize() assertion.
+				// That means matching both the sampling step (ineqSampleDt) and
+				// the released tail (endOffset).
+				double toff = vertices[i].ineq_constraint[j].timeOffset
+				            - vertices[i].ineq_constraint[j].endOffset;
+				if(toff < 0.0){ toff = 0.0; }
 				numConst += (vertices[i].ineq_constraint[j].InEqDim(k)*toff/ineqSampleDt+1);
 			}
 		}
