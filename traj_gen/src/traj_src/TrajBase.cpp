@@ -539,9 +539,11 @@ void TrajBase::setFovTrustRegion(double pos, double acc, double yaw){
 	fovTrustYaw = yaw;
 }
 
-void TrajBase::setMinAltitude(bool enable, double minAlt){
+void TrajBase::setMinAltitude(bool enable, double minAlt, double aboveTarget, double releaseS){
 	minAltitudeEnabled = enable;
 	minAltitude = minAlt;
+	minAltitudeAboveTarget = aboveTarget;
+	minAltitudeReleaseS = releaseS;
 }
 
 void TrajBase::applyMinAltitude(){
@@ -590,19 +592,41 @@ void TrajBase::applyMinAltitude(){
 	// every solve. Pull the window in by one sample step (ineqSampleDt,
 	// matching genInEqConstraint) so BOTH endpoints of every segment are
 	// excluded, leaving the interior of the segment constrained.
+	// Where the floor sits, in NED z (smaller = higher).
+	double floorZ = -minAltitude;
+	if(minAltitudeAboveTarget > 0.0){
+		// Relative to the perch target rather than the world origin. The final
+		// vertex IS the target, so its height is known here even though it is
+		// only discovered at solve time (a visual target moves between plans,
+		// so no absolute figure could track it).
+		Eigen::VectorXd targetPos;
+		if(vertices.back().getPos(&targetPos) == 1 && targetPos.rows() > 2){
+			floorZ = targetPos(2) - minAltitudeAboveTarget;
+		}
+		else{
+			std::cout << "[MIN_ALTITUDE] final waypoint has no position constraint -- "
+			          << "falling back to the absolute floor" << std::endl;
+		}
+	}
+
 	for(size_t i = 1; i < vertices.size(); i++){
 		waypoint_ineq_const c;
 		c.derivOrder = 0; // position
 		c.timeOffset = std::max(0.0, segmentTimes[i-1] - ineqSampleDt);
+		// Lift the floor for the last stretch before arrival, on the final
+		// segment only -- otherwise it would block the very descent onto the
+		// target that it exists to protect.
+		c.endOffset = (i == vertices.size() - 1) ? minAltitudeReleaseS : 0.0;
 		c.lower = Eigen::Vector4d::Constant(-kUnbounded);
 		c.upper = Eigen::Vector4d::Constant(kUnbounded);
-		c.upper(2) = -minAltitude;
+		c.upper(2) = floorZ;
 		c.InEqDim = Eigen::Vector4d::Zero();
 		c.InEqDim(2) = 1;
 		vertices[i].addInEqualityConstraint(c);
 	}
-	std::cout << "[MIN_ALTITUDE] applied: minAlt=" << minAltitude
-	          << " (z <= " << -minAltitude << ") across "
+	std::cout << "[MIN_ALTITUDE] applied: z <= " << floorZ
+	          << (minAltitudeAboveTarget > 0.0 ? " (target-relative)" : " (absolute)")
+	          << ", released for the final " << minAltitudeReleaseS << "s, across "
 	          << (vertices.size() - 1) << " segment(s)" << std::endl;
 }
 

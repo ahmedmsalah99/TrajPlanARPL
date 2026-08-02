@@ -60,9 +60,21 @@ traj_exe:
     fov_trust_acc: 0.2          # m/s^2, per axis (ax,ay,az)
     fov_trust_yaw: 0.1          # rad
     fov_horizontal_fov: 1.74    # camera horizontal FOV (rad); r_h = tan(fov/2), eq.(7)
-    # Minimum altitude enforced across the whole trajectory (NED: upper bound on z)
-    min_altitude_enable: false  # add the min-altitude inequality to every segment
-    min_altitude: 0.0           # metres above the world origin
+    # Keep the trajectory above a floor, so it cannot arrive at the target's
+    # height while still short of it laterally and clip the pad on the way in.
+    # (NED: a floor is an upper bound on z.)
+    min_altitude_enable: true
+    min_altitude: 0.0           # metres above the WORLD ORIGIN; used only when
+                                # min_altitude_above_target is 0
+    # Preferred: put the floor this many metres above the FINAL waypoint (the
+    # perch target) instead of above the origin. The pad's height is only known
+    # at solve time and moves with the visual target, so an absolute figure
+    # cannot track it.
+    min_altitude_above_target: 0.4
+    # Seconds before arrival where the floor is lifted, letting the final
+    # approach descend onto the target. Without this the floor would block the
+    # very descent it exists to protect. Same idea as perch_window.
+    min_altitude_release_s: 1.0
     # Horizontal (x,y) vel/accel/jerk limits, sampled across every segment's
     # interior (not just at waypoints/endpoints). Each value is the true
     # horizontal magnitude limit (sqrt(vx^2+vy^2) <= this, resp. accel/jerk) --

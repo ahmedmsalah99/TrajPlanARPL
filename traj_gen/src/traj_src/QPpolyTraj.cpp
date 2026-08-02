@@ -738,7 +738,13 @@ QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 	for (int i = 1; i < vertices.size();i++){
 		//Count the number of inequality constraints you have
 		for(int j =0; j < vertices[i].ineq_constraint.size(); j++){
-			double toff = vertices[i].ineq_constraint[j].timeOffset;
+			// Upper bound on the rows the sampling loop below can emit. The
+			// window it actually walks starts at time-timeOffset and stops
+			// at time-endOffset, so subtract the released tail here too or the
+			// estimate stops being tight. It must stay an OVER-estimate.
+			double toff = vertices[i].ineq_constraint[j].timeOffset
+			            - vertices[i].ineq_constraint[j].endOffset;
+			if(toff < 0.0){ toff = 0.0; }
 			numConst += (vertices[i].ineq_constraint[j].InEqDim(dimension)*toff/dt+1);
 		}
 	}
@@ -773,8 +779,12 @@ QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 				double toff = time - pon_ineq.timeOffset;
 				//Don't sample before the segment starts if the window is longer than the segment
 				if(toff < 0){ toff = 0; }
+				//Close the window early when a tail has been released (see
+				//endOffset). tEnd <= 0 releases the constraint entirely.
+				double tEnd = time - pon_ineq.endOffset;
+				if(tEnd < 0){ tEnd = 0; }
 				//std::cout << "End time " << time << std::endl;
-				while(toff < time){
+				while(toff < tEnd){
 					
 					Eigen::VectorXd row = basis(toff, pon_ineq.derivOrder);
 					ineq_const.d(rowNum) = pon_ineq.lower(dimension);
