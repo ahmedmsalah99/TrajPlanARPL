@@ -312,12 +312,32 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 
     std::vector<double> segmentTimes_prev=trajectory->segmentTimes;
 
+	// Snapshot of THIS class's own bookkeeping (segmentTimes/curr_v), distinct
+	// from trajectory's copy above. t_elap is cumulative -- total elapsed time
+	// since the trajectory's begin was last set, not time since the last call
+	// -- so segmentTimes[curr_v] -= t_elap must only ever be committed once,
+	// on a call that ultimately succeeds. Every failure path below must restore
+	// both of these, or a run of K consecutive failures (e.g. the same
+	// constraint conflict refusing to solve every cycle) subtracts K
+	// increasingly-large cumulative t_elap values instead of one, draining
+	// segmentTimes[curr_v] far faster than real flight time and hitting
+	// minSegTime -- and therefore giving up on replanning for good -- long
+	// before the vehicle has actually gotten anywhere near the target.
+	// curr_v matters just as much: if it is left incremented after a failed
+	// attempt, the NEXT call's curr_v==future_v.size() check at the top of
+	// this function fires immediately, so restoring segmentTimes alone would
+	// just move where the permanent stop happens, not remove it.
+	std::vector<double> member_segmentTimes_prev = segmentTimes;
+	int curr_v_prev = curr_v;
+
 	segmentTimes[curr_v]-=(t_elap);
 
 	const double kSegMergeEps = 0.0015; // tiny slack when merging a consumed segment's time
 	if((curr_v == future_v.size()-1)&&(segmentTimes[curr_v] < minSegTime)){
 		curr_v+=1;
 		std::cout << "can't replan future_v.size() " << future_v.size() << " and segmentTimes[curr_v] " << segmentTimes[curr_v] << " while minSegTime " <<minSegTime << std::endl;
+		segmentTimes = member_segmentTimes_prev;
+		curr_v = curr_v_prev;
 		return false;
 	}
 
@@ -424,6 +444,10 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 			trajectory->vertices = vertices_prev;
 			trajectory->coeffSolved = coeffSolved_prev;
 			trajectory->segmentTimes =  segmentTimes_prev;
+			// See the member_segmentTimes_prev/curr_v_prev comment above --
+			// this class's own bookkeeping needs the same revert.
+			segmentTimes = member_segmentTimes_prev;
+			curr_v = curr_v_prev;
 			std::cout << " could not plan flight: perch terminal condition exceeds "
 			          << "the configured horizontal limits" << std::endl;
 			return false;
@@ -460,6 +484,10 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 			trajectory->vertices = vertices_prev;
 			trajectory->coeffSolved = coeffSolved_prev;
 			trajectory->segmentTimes =  segmentTimes_prev;
+			// See the member_segmentTimes_prev/curr_v_prev comment above --
+			// this class's own bookkeeping needs the same revert.
+			segmentTimes = member_segmentTimes_prev;
+			curr_v = curr_v_prev;
 			std::cout << " could not plan flight" << std::endl;
 			return false;
 		}
