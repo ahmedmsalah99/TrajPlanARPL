@@ -690,7 +690,12 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 			time_plan+=t_elap;
 			if (time_plan >=replan_time){
 				//std::cout << "replan start" <<std::endl;
-				double replan_timer = node->now().seconds() ;
+				// The instant replan() reads the old trajectory to build the new
+				// one's start state. Everything after this -- the QP solve, the
+				// retries -- is latency, so this is the wall-clock time the new
+				// plan's t=0 actually corresponds to.
+				rclcpp::Time replan_anchor = node->now();
+				double replan_timer = replan_anchor.seconds() ;
 				std::cout << "useVisual " << useVisual << std::endl;
 				if(useVisual){
 					Eigen::Matrix4d H;
@@ -729,14 +734,18 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 				//std::cout << "replan end" <<std::endl;
 				if (replan_success){
 					traj_use = replanner.getTraj();
-					controller->startFlight(traj_use);
+					// Anchored, NOT node->now(): see startFlight's overload comment.
+					controller->startFlight(traj_use, replan_anchor);
 					//refresh RViz so it shows the live replanned trajectory, not the
 					//stale initial plan (the endpoint tracks the moving target)
 					visualize_paths(traj_use);
 					maybeLogPlannedTrajectory(traj_use);
 				}
 				double replan_timer_end =  node->now().seconds() ;
-				// std::cout << "Time ELAPSED " <<replan_timer_end-replan_timer <<std::endl;
+				// Solve latency == exactly how far the setpoint used to jump
+				// backwards on every replan, so it is worth seeing.
+				std::cout << "[REPLAN] solve latency " << (replan_timer_end - replan_timer)
+				          << "s" << std::endl;
 				time_plan = 0.0;
 			}
 		}

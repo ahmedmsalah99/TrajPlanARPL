@@ -27,7 +27,7 @@ rclcpp::Publisher<quadrotor_msgs::msg::PositionCommand>::SharedPtr pubCMD;
 rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr pubThrust;
 rclcpp::TimerBase::SharedPtr timer_;
 rclcpp::Time begin;
-void setNewFlightPath(TrajBase * traj);
+void setNewFlightPath(TrajBase * traj, const rclcpp::Time & anchorTime);
 
 TrajBase * currTraj;
 bool normalPoly = true;
@@ -43,6 +43,17 @@ poscmd_publisher( rclcpp::Node::SharedPtr node, std::string cmd_topic, double dt
 static std::vector<quadrotor_msgs::msg::PositionCommand>  arplCMDlist(double dt, double kx, double kv, std::string frame_id, TrajBase * traj); //ARPL COMMAND SPECIFIC
 
 void startFlight(TrajBase * traj);
+
+//Same, but declares that the trajectory's t=0 corresponds to anchorTime
+//rather than to now. replan() builds the new trajectory from the OLD one's
+//state at the instant it was entered, then the QP solve takes real time --
+//so by the time the new plan is installed, that instant is already in the
+//past. Starting its clock at now would command the state from
+//(now - solve_time), i.e. jump the setpoint BACKWARDS by one solve, which
+//the vehicle sees as a sudden reversal and brakes against. Anchoring the
+//clock to when the state was actually valid removes the jump regardless of
+//how long the solve took.
+void startFlight(TrajBase * traj, const rclcpp::Time & anchorTime);
 
 //Publish the trajectory's t=0 setpoint continuously, WITHOUT starting the
 //trajectory clock. Used while waiting for offboard to be enabled: PX4 needs an
