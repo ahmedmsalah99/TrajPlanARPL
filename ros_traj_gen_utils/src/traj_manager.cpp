@@ -690,7 +690,12 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 			time_plan+=t_elap;
 			if (time_plan >=replan_time){
 				//std::cout << "replan start" <<std::endl;
-				double replan_timer = node->now().seconds() ;
+				// The instant replan() reads the old trajectory to build the new
+				// one's start state. Everything after this -- the QP solve, the
+				// retries -- is latency, so this is the wall-clock time the new
+				// plan's t=0 actually corresponds to.
+				rclcpp::Time replan_anchor = node->now();
+				double replan_timer = replan_anchor.seconds() ;
 				std::cout << "useVisual " << useVisual << std::endl;
 				if(useVisual){
 					Eigen::Matrix4d H;
@@ -729,15 +734,46 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 				//std::cout << "replan end" <<std::endl;
 				if (replan_success){
 					traj_use = replanner.getTraj();
-					controller->startFlight(traj_use);
+					// Anchored, NOT node->now(): see startFlight's overload comment.
+					controller->startFlight(traj_use, replan_anchor);
 					//refresh RViz so it shows the live replanned trajectory, not the
 					//stale initial plan (the endpoint tracks the moving target)
 					visualize_paths(traj_use);
 					maybeLogPlannedTrajectory(traj_use);
+					// Only reset here, on success. time_plan means "elapsed time since
+					// the flying trajectory's begin was last set" -- and begin is ONLY
+					// updated a few lines above, inside this same if(replan_success).
+					// Resetting unconditionally (the previous bug) let a FAILED attempt
+					// zero time_plan while begin stayed put, so the next successful
+					// replan would be handed a t_elap short by whatever real time the
+					// failed attempt(s) actually took -- anchoring the new plan to a
+					// state that was already stale by that amount the instant it was
+					// installed. That is a second, independent source of the same
+					// "setpoint jumps backward" symptom this PR's first commit fixed,
+					// through a different channel (a wrong t_elap, not solve latency),
+					// and it gets WORSE at higher replan rates: the number of replan
+					// ATTEMPTS per second scales with cadence, so at a fixed per-attempt
+					// failure rate, failures-per-second (and therefore stale-anchor
+					// events per second) scale with it too.
+					time_plan = 0.0;
+				}
+				else{
+					// Deliberately NOT resetting time_plan -- see the comment above.
+					// It keeps accumulating, so time_plan >= replan_time stays true and
+					// the very next loop iteration retries immediately (rather than
+					// waiting a full replan_time to try again), and whenever a later
+					// attempt succeeds, replan() is handed the TRUE elapsed time since
+					// begin, not just the time since this failed attempt.
+					std::cout << "[REPLAN] attempt failed -- time_plan left at "
+					          << time_plan << "s (not reset) so the next attempt sees "
+					          << "the true elapsed time since the trajectory clock was "
+					          << "last set." << std::endl;
 				}
 				double replan_timer_end =  node->now().seconds() ;
-				// std::cout << "Time ELAPSED " <<replan_timer_end-replan_timer <<std::endl;
-				time_plan = 0.0;
+				// Solve latency == exactly how far the setpoint used to jump
+				// backwards on every replan, so it is worth seeing.
+				std::cout << "[REPLAN] solve latency " << (replan_timer_end - replan_timer)
+				          << "s" << std::endl;
 			}
 		}
 		else{

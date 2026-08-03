@@ -108,7 +108,7 @@ void poscmd_publisher::timerCallback(){
 }
 
 
-void poscmd_publisher::setNewFlightPath( TrajBase * traj){
+void poscmd_publisher::setNewFlightPath( TrajBase * traj, const rclcpp::Time & anchorTime){
 		count = 0; //reset count
 		currTraj = traj;
 		totalTime = 0.0;
@@ -119,7 +119,7 @@ void poscmd_publisher::setNewFlightPath( TrajBase * traj){
 		totalTime = totalTime/0.01;
 		totalTime = floor(totalTime);
 		totalTime = totalTime*0.01;
-		begin = node_->now();
+		begin = anchorTime;
 		state = FLIGHT;
 }
 
@@ -159,7 +159,11 @@ void poscmd_publisher::setEND(){
 
 //Static Function
 void poscmd_publisher::startFlight(TrajBase * traj){
-	setNewFlightPath(traj);
+	setNewFlightPath(traj, node_->now());
+}
+
+void poscmd_publisher::startFlight(TrajBase * traj, const rclcpp::Time & anchorTime){
+	setNewFlightPath(traj, anchorTime);
 }
 
 std::vector<quadrotor_msgs::msg::PositionCommand> poscmd_publisher::arplCMDlist(double dt, double kx, double kv, std::string frame_id, TrajBase * traj){
