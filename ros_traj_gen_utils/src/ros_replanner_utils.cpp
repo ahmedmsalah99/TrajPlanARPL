@@ -56,6 +56,19 @@ TrajBase * ros_replan_utils::getTraj(){
 bool ros_replan_utils::initialPlan(int degreeOpt){
         //std::cout << "initial plan " <<std::endl;
 	curr_v =0;
+	// trajectory is a single object reused across the whole session (see
+	// set_params()'s bare pointer assignment) -- it is NOT a fresh instance per
+	// call. Whatever it held before this call may currently be what poscmd_publisher
+	// is actively flying via that same pointer. Every failure path below must
+	// restore this, exactly like replan() already does, or a failed re-solve
+	// (e.g. the idle visual-tracking loop retrying every cycle while waiting for
+	// offboard) permanently clobbers a trajectory that is live on a completely
+	// separate timer -- leaving it traj_valid=false, so poscmd_publisher's next
+	// evalTraj() call returns Constant(5,dim,-1e10) and that garbage gets
+	// published as the actual PositionCommand.
+	std::vector<waypoint> vertices_prev = trajectory->vertices;
+	Eigen::MatrixXd coeffSolved_prev = trajectory->coeffSolved;
+	std::vector<double> segmentTimes_prev = trajectory->segmentTimes;
 	nav_msgs::msg::Odometry current_heading;
 	if(odom_l->getCurrOdom(&current_heading)){
 		waypoint start(current_heading);
@@ -77,6 +90,10 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 		if(!trajectory->calcPerchCond(prevTarget)){
 			std::cout << " could not plan flight: perch terminal condition exceeds "
 			          << "the configured horizontal limits" << std::endl;
+			trajectory->overideSolve();
+			trajectory->vertices = vertices_prev;
+			trajectory->coeffSolved = coeffSolved_prev;
+			trajectory->segmentTimes = segmentTimes_prev;
 			return false;
 		}
 	}
@@ -103,6 +120,10 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 		count+=1;
 		if(count == retryMax){
 			std::cout << " could not plan flight" << std::endl;
+			trajectory->overideSolve();
+			trajectory->vertices = vertices_prev;
+			trajectory->coeffSolved = coeffSolved_prev;
+			trajectory->segmentTimes = segmentTimes_prev;
 			return false;
 		}
 	}
@@ -116,6 +137,13 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
         //std::cout << "initial plan " <<std::endl;
 	curr_v =0;
+	// See the matching comment in the other initialPlan() overload: trajectory
+	// is a single object reused for the whole session, possibly the exact one
+	// poscmd_publisher is actively flying right now, so every failure path
+	// below must restore it rather than leaving it cleared/invalid.
+	std::vector<waypoint> vertices_prev = trajectory->vertices;
+	Eigen::MatrixXd coeffSolved_prev = trajectory->coeffSolved;
+	std::vector<double> segmentTimes_prev = trajectory->segmentTimes;
 	nav_msgs::msg::Odometry current_heading;
 		trajectory->vertices.clear();
 
@@ -149,6 +177,10 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 	if(!trajectory->calcPerchCond(target)){
 		std::cout << " could not plan flight: perch terminal condition exceeds "
 		          << "the configured horizontal limits" << std::endl;
+		trajectory->overideSolve();
+		trajectory->vertices = vertices_prev;
+		trajectory->coeffSolved = coeffSolved_prev;
+		trajectory->segmentTimes = segmentTimes_prev;
 		return false;
 	}
 	prevTarget = target;
@@ -171,6 +203,10 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 		count+=1;
 		if(count == retryMax){
 			std::cout << " could not plan flight" << std::endl;
+			trajectory->overideSolve();
+			trajectory->vertices = vertices_prev;
+			trajectory->coeffSolved = coeffSolved_prev;
+			trajectory->segmentTimes = segmentTimes_prev;
 			return false;
 		}
 	}
