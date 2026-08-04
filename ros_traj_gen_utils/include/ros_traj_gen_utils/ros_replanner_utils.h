@@ -54,6 +54,15 @@ double minSegTime = 0.5;  // segments shorter than this are merged/skipped
 // happens when that countdown would otherwise go infeasible. See
 // setReallocateTime().
 bool reallocateTime = true;
+// Set once replan() finds the last segment's honestly-computed remaining
+// duration below minSegTime -- i.e. there isn't enough real time left before
+// the NEXT scheduled replan call to safely re-derive anything. While true,
+// replan() declines immediately without touching anything, leaving the
+// already-installed (and, thanks to reallocateTime's continuous correction
+// up to this point, trustworthy) trajectory to fly to its own natural
+// completion. Reset to false at the start of every fresh flight -- see
+// initialPlan().
+bool committedFinalApproach = false;
 public:
 ros_replan_utils();
 
@@ -145,6 +154,22 @@ void setAnchorOdom(bool in);
 //     several seconds per metre at typical v_max/a_max, and each swing
 //     re-pinned the perch terminal condition to a different deadline,
 //     producing its own violent terminal-maneuver whiplash.)
+//
+//     The rescued estimate is NOT floored at minSegTime (an earlier version
+//     did this). Flooring forces every near-arrival segment to span at least
+//     minSegTime regardless of how little real distance is left, which
+//     throttles the commanded approach velocity every cycle (distance keeps
+//     shrinking but the time budget keeps resetting to the same floor) --
+//     an asymptotic stall that never quite lets the vehicle finish. Instead,
+//     once the honestly-computed remaining duration is itself below
+//     minSegTime -- genuinely too little time for another safe replan cycle
+//     -- replan() commits: see committedFinalApproach. That lets the final,
+//     honestly-short approach actually fly at the speed it needs to, while
+//     still avoiding the anchor-corruption spiral a too-short, but
+//     REPLACED-anyway, trajectory caused (evalTraj() clamping the next
+//     cycle's anchor query to the trajectory's endpoint once t_elap exceeds
+//     its duration -- and with replan_odom_blend at 0, that fictitious
+//     "already there" anchor feeding an even smaller next estimate).
 //false: original behaviour -- only ever shrink the one duration computed
 //     at flight start, give up permanently if it runs out.
 void setReallocateTime(bool in);
