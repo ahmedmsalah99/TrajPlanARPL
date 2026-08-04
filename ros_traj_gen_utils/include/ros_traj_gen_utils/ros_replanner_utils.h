@@ -136,8 +136,19 @@ void setAnchorOdom(bool in);
 //true (default): when the countdown on the LAST segment is about to go
 //     infeasible (below minSegTime), rescue it -- recompute a fresh
 //     distance-based estimate via autogenTimeSegment() from the anchor's
-//     ACTUAL current position, and take the max with the countdown. This
-//     only tops up a failing budget; a healthy countdown is left alone.
+//     ACTUAL current position, and take the max of the countdown, the fresh
+//     estimate, AND minSegTime. This only tops up a failing budget; a healthy
+//     countdown is left alone. The minSegTime floor matters on its own: a
+//     rescued trajectory shorter than replan_time guarantees the NEXT replan
+//     call's t_elap exceeds it, so evalTraj() clamps the anchor query to the
+//     trajectory's endpoint (the target's own position) instead of
+//     extrapolating -- and with replan_odom_blend at 0 (pure prediction),
+//     that fictitious "already there" anchor feeds the next rescue an
+//     artificially tiny distance, producing an even smaller estimate.
+//     Confirmed in the field as a shrinking spiral (0.22s -> 0.04s -> 0.01s
+//     -> give-up) before the floor was added; minSegTime is already this
+//     system's definition of the shortest viable segment and is comfortably
+//     larger than replan_time, so flooring at it breaks the loop.
 //     (An earlier version called autogenTimeSegment() unconditionally, every
 //     cycle, replacing the countdown outright -- that made the allocated
 //     time highly sensitive to ordinary tracking/vision noise near the
