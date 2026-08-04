@@ -265,6 +265,38 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	//}
 	//ros::Duration(t_elap*0.25).sleep();
 	double t_wait  = rclcpp::Clock().now().seconds() - t0 ;
+
+	// Guard BEFORE touching evalTraj or any state: t_elap is cumulative --
+	// total real time since the currently-installed trajectory's begin was
+	// set -- and evalTraj() CLAMPS once its query time exceeds that
+	// trajectory's own total duration (see its "don't extrapolate past the
+	// end" comment). That clamp exists to absorb tiny float overshoot, not a
+	// genuine multi-cycle gap. If a run of slow, retry-heavy failures (each
+	// replan attempt can burn through up to retryMax full QP re-solves) lets
+	// real time run past this trajectory's own duration before anything new
+	// installs, the anchor below would silently pin to the OLD trajectory's
+	// TERMINAL state -- for a perch approach, its impact boundary condition
+	// -- and a plan built from that gets flown from wherever the vehicle
+	// actually is, which is nowhere near that state. That is an unannounced
+	// "restart from the target's own impact condition", not a continuation:
+	// exactly the sudden reset/velocity discontinuity this guard exists to
+	// prevent, and plausibly why a bad one ends in contact with the pad.
+	// Treat it as an ordinary replan failure -- keep flying whatever is
+	// already active (which by this point is holding at its own terminal
+	// setpoint anyway, the safe thing to do) rather than seizing on a stale
+	// anchor.
+	double trajTotalTime = 0.0;
+	for(size_t i = 0; i < trajectory->segmentTimes.size(); i++){
+		trajTotalTime += trajectory->segmentTimes[i];
+	}
+	if(t_elap + t_wait + t_off > trajTotalTime){
+		std::cout << "[REPLAN] anchor query time " << (t_elap+t_wait+t_off)
+		          << "s exceeds the active trajectory's own duration " << trajTotalTime
+		          << "s -- refusing to anchor to its clamped terminal state, "
+		          << "keeping the currently-active trajectory instead." << std::endl;
+		return false;
+	}
+
 	waypoint start(current_heading);
 
 	Eigen::MatrixXd point_info = trajectory->evalTraj(t_elap+t_wait);
