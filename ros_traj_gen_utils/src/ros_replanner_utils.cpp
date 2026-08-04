@@ -2,6 +2,7 @@
 #include <ros_traj_gen_utils/ros_traj_utils.h>
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 
 namespace {
 // status entries are (pos, vel, accel, jerk, snap); 1 constrains that order.
@@ -115,8 +116,24 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 	int count = 0;
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 	while (!(trajectory->checkSolved())){
+		// Growth doubles each retry (retryStep, 2*retryStep, 4*retryStep, ...)
+		// instead of adding a flat retryStep every time. A fixed step means the
+		// number of retries needed to reach a given total addition scales
+		// linearly with how much extra time the real dynamics actually require:
+		// if a solve genuinely needs more than retryMax*retryStep in total, it
+		// fails on every single attempt, burning a full retryMax solver calls
+		// before giving up (confirmed in the field: a replan() solve needing
+		// several seconds more than 10*0.2s=2.0s took all 10 retries and 1.5+
+		// real seconds to fail, during which the vehicle kept flying an
+		// uncorrected, by-then-stale trajectory). Doubling reaches the same
+		// total addition in log2(N) retries instead of N, so a solve that's
+		// genuinely feasible with more time is far more likely to be found
+		// before retryMax gives up -- and a true structural infeasibility
+		// (unrelated to how much time is available) is discovered in fewer,
+		// cheaper iterations too.
+		double growth = retryStep * std::pow(2.0, count);
 		for(int i = 0; i < trajectory->segmentTimes.size();i++){
-			trajectory->segmentTimes[i] +=retryStep;
+			trajectory->segmentTimes[i] +=growth;
 		}
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
@@ -200,8 +217,11 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 	int count = 0;
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 	while (!(trajectory->checkSolved())){
+		// Doubling growth -- see the matching comment in the other initialPlan()
+		// overload.
+		double growth = retryStep * std::pow(2.0, count);
 		for(int i = 0; i < trajectory->segmentTimes.size();i++){
-			trajectory->segmentTimes[i] +=retryStep;
+			trajectory->segmentTimes[i] +=growth;
 		}
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
@@ -535,8 +555,10 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		// curr_v..end), so indexing [curr_v] walked out of bounds as curr_v grew
 		// -- a heap write past the vector end that intermittently corrupted the
 		// trajectory and made it collapse. Add to every remaining segment (0-based).
+		// Doubling growth -- see the matching comment in initialPlan().
+		double growth = retryStep * std::pow(2.0, count);
 		for(int i = 0; i < trajectory->segmentTimes.size(); i++){
-			trajectory->segmentTimes[i] += retryStep;
+			trajectory->segmentTimes[i] += growth;
 		}
 		coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
