@@ -459,10 +459,30 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		// acceleration match to a different deadline. That produced its own
 		// terminal-maneuver whiplash, independent of the running-out-of-budget
 		// failure this mechanism exists to fix.)
+		//
+		// The rescued value is also floored at minSegTime, not just maxed
+		// against the countdown -- confirmed necessary in the field: a rescue
+		// can legitimately produce a fresh estimate that's ITSELF still below
+		// minSegTime (the vehicle genuinely is close), which without this floor
+		// installs a trajectory shorter than replan_time. The NEXT replan call
+		// then has t_elap > that trajectory's own duration, so evalTraj()
+		// clamps the anchor query to the trajectory's endpoint -- the target's
+		// own position -- rather than extrapolating. With replan_odom_blend at
+		// 0 (pure prediction), that clamped, fictitious "already at the
+		// target" position becomes the entire input to the next rescue's
+		// distance estimate, which honestly reports an even smaller number for
+		// a corrupted reason. Each cycle repeats this, converging to zero and
+		// ending the flight (a field log showed 0.223794 -> 0.0366112 ->
+		// 0.0148946 -> give-up). minSegTime is already this system's
+		// definition of the shortest viable segment, and it's comfortably
+		// larger than replan_time, so flooring here guarantees the installed
+		// trajectory always outlives the gap until the next replan call --
+		// t_elap can never exceed it, so evalTraj never clamps, so the anchor
+		// is never corrupted by this loop.
 		std::vector<double> countdown = trajectory->segmentTimes;
 		trajectory->autogenTimeSegment();
 		for(size_t i = 0; i < trajectory->segmentTimes.size() && i < countdown.size(); i++){
-			trajectory->segmentTimes[i] = std::max(countdown[i], trajectory->segmentTimes[i]);
+			trajectory->segmentTimes[i] = std::max({countdown[i], trajectory->segmentTimes[i], minSegTime});
 		}
 	}
 	trajectory->applyMinAltitude();
