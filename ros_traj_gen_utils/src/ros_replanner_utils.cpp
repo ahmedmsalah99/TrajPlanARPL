@@ -333,7 +333,18 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	segmentTimes[curr_v]-=(t_elap);
 
 	const double kSegMergeEps = 0.0015; // tiny slack when merging a consumed segment's time
-	if((curr_v == future_v.size()-1)&&(segmentTimes[curr_v] < minSegTime)){
+	// Whether the real-time countdown on the LAST segment has run low enough
+	// that, left alone, it can no longer support a solve. Historically this
+	// meant giving up outright (see the !reallocateTime branch below). Under
+	// reallocateTime it instead becomes the trigger for a rescue further down
+	// -- once trajectory->vertices/segmentTimes are rebuilt in the structure
+	// autogenTimeSegment() needs -- rather than an immediate failure. See
+	// setReallocateTime() for why: the countdown only ever knows the ONE
+	// straight-line estimate made at initialPlan(), so if the real, constrained
+	// path takes longer, it eventually runs out while the vehicle is still far
+	// from the target.
+	bool lastSegmentLow = (curr_v == future_v.size()-1)&&(segmentTimes[curr_v] < minSegTime);
+	if(lastSegmentLow && !reallocateTime){
 		curr_v+=1;
 		std::cout << "can't replan future_v.size() " << future_v.size() << " and segmentTimes[curr_v] " << segmentTimes[curr_v] << " while minSegTime " <<minSegTime << std::endl;
 		segmentTimes = member_segmentTimes_prev;
@@ -341,7 +352,7 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		return false;
 	}
 
-	if(segmentTimes[curr_v] < minSegTime){
+	if(!lastSegmentLow && segmentTimes[curr_v] < minSegTime){
 		curr_v+=1;
 		//consume  the previous segments time if it is less than the minimum segment time
 		segmentTimes[curr_v]+=(segmentTimes[curr_v-1])+kSegMergeEps;
@@ -426,29 +437,32 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		trajectory->push_back(future_v[i]);
 	}
 
-	if(reallocateTime){
-		// Re-derive the remaining duration from the anchor's ACTUAL current
-		// distance to the target -- trajectory->vertices was just rebuilt above
-		// as [anchor, future_v[curr_v+1..end]], exactly the structure
-		// autogenTimeSegment() expects, so this is the identical heuristic
-		// initialPlan() uses, just re-run every cycle instead of once. See the
-		// setReallocateTime() declaration comment for why this matters: without
-		// it, a flight whose real (constrained) path takes longer than the
-		// straight-line estimate made at t=0 runs out of allocated time while
-		// still far from the target, and simply stops.
-		trajectory->autogenTimeSegment();
-		// The re-derived trajectory is being treated as a fresh start from
-		// wherever the anchor is now -- curr_v/segmentTimes (this class's
-		// absolute-indexed bookkeeping) reset to match, rather than continuing
-		// the old numbering. The sync loop after the FOV block below writes
-		// trajectory->segmentTimes back into segmentTimes[curr_v..], so this
-		// must happen before that, not after.
-		curr_v = 0;
+	trajectory->segmentTimes.clear();
+	for (int i = curr_v;i < segmentTimes.size();i++){
+		trajectory->segmentTimes.push_back(segmentTimes[i]);
 	}
-	else{
-		trajectory->segmentTimes.clear();
-		for (int i = curr_v;i < segmentTimes.size();i++){
-			trajectory->segmentTimes.push_back(segmentTimes[i]);
+	if(reallocateTime && lastSegmentLow){
+		// Rescue path only -- see lastSegmentLow and setReallocateTime() above.
+		// The real-time countdown just used to build trajectory->segmentTimes
+		// is exact and low-noise, so it stays the default source of truth every
+		// cycle, unchanged from before reallocateTime existed. Only when it's
+		// about to go infeasible do we ask autogenTimeSegment() for a fresh,
+		// distance-based estimate from the anchor's ACTUAL current position --
+		// and even then only take the max with the countdown, topping up a
+		// failing budget rather than replacing a healthy one. (An earlier
+		// version of this called autogenTimeSegment() unconditionally, every
+		// cycle: near the target its output is highly sensitive to small
+		// distance changes -- several seconds of allocated time per metre at
+		// this v_max/a_max -- so ordinary tracking/vision noise made
+		// consecutive cycles disagree wildly about how much time was left, and
+		// each disagreement re-pinned calcPerchCond's terminal velocity/
+		// acceleration match to a different deadline. That produced its own
+		// terminal-maneuver whiplash, independent of the running-out-of-budget
+		// failure this mechanism exists to fix.)
+		std::vector<double> countdown = trajectory->segmentTimes;
+		trajectory->autogenTimeSegment();
+		for(size_t i = 0; i < trajectory->segmentTimes.size() && i < countdown.size(); i++){
+			trajectory->segmentTimes[i] = std::max(countdown[i], trajectory->segmentTimes[i]);
 		}
 	}
 	trajectory->applyMinAltitude();

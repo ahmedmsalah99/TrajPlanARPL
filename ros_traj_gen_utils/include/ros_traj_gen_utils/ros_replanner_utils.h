@@ -45,10 +45,14 @@ double fovCoverageFraction = 0.5;
 double retryStep = 0.2;   // seconds added to segment time(s) per failed solve
 int retryMax = 10;        // max solve retries before giving up / reverting
 double minSegTime = 0.5;  // segments shorter than this are merged/skipped
-// Whether replan() re-derives the remaining segment duration from the
-// CURRENT distance to target each cycle, instead of only ever shrinking the
-// one total duration autogenTimeSegment() computed at the very first
-// initialPlan(). See setReallocateTime().
+// Whether replan(), when the real-time countdown on the final segment is
+// about to run out (see lastSegmentLow in the .cpp), rescues it with a fresh
+// distance-based estimate from autogenTimeSegment() instead of giving up.
+// The countdown itself (shrinking the one total duration autogenTimeSegment()
+// computed at the very first initialPlan(), by real elapsed time each cycle)
+// stays the default source of truth either way -- this only controls what
+// happens when that countdown would otherwise go infeasible. See
+// setReallocateTime().
 bool reallocateTime = true;
 public:
 ros_replan_utils();
@@ -118,26 +122,31 @@ void setFreeStartJerkSnap(bool in);
 //true leaves it at whatever setOdomBlend() was given.
 void setAnchorOdom(bool in);
 
-//replan() never called autogenTimeSegment() -- it only ever shrank the one
-//total duration computed once, at the very first initialPlan(), based on
-//the straight-line distance to target. That estimate knows nothing about
-//min_altitude, the perch band, or any other constraint that makes the real,
-//constrained path slower than a straight line. If it under-estimates, the
-//whole flight runs on a fixed time budget that has nothing to do with how
-//much distance is actually left -- confirmed in the field: repeated
-//"can't replan ... segmentTimes[curr_v] 0" events immediately after a
-//fresh install, followed by the flight ending (a single "replanning time
-//done, take a hover") well before the vehicle had actually reached the
-//target, with nothing ever restarting it.
+//replan() never called autogenTimeSegment() again after initialPlan() -- it
+//only ever shrank the one total duration computed once, at the very first
+//initialPlan(), based on the straight-line distance to target at flight
+//start. That estimate knows nothing about min_altitude, the perch band, or
+//any other constraint that makes the real, constrained path slower than a
+//straight line. If it under-estimates, the countdown eventually runs out
+//while the vehicle is still far from the target -- confirmed in the field:
+//repeated "can't replan ... segmentTimes[curr_v] 0" events, followed by the
+//flight ending (a single "replanning time done, take a hover") well short of
+//the target, with nothing ever restarting it.
 //
-//true (default): every replan re-derives the remaining duration from the
-//     anchor's actual current distance to the target, the same heuristic
-//     initialPlan() uses for the very first solve. curr_v resets to 0 along
-//     with it, since the re-derived trajectory is being treated as a fresh
-//     start from wherever the anchor is now, not a continuation of the old
-//     absolute segment numbering.
+//true (default): when the countdown on the LAST segment is about to go
+//     infeasible (below minSegTime), rescue it -- recompute a fresh
+//     distance-based estimate via autogenTimeSegment() from the anchor's
+//     ACTUAL current position, and take the max with the countdown. This
+//     only tops up a failing budget; a healthy countdown is left alone.
+//     (An earlier version called autogenTimeSegment() unconditionally, every
+//     cycle, replacing the countdown outright -- that made the allocated
+//     time highly sensitive to ordinary tracking/vision noise near the
+//     target, since small distance changes swing the heuristic's output by
+//     several seconds per metre at typical v_max/a_max, and each swing
+//     re-pinned the perch terminal condition to a different deadline,
+//     producing its own violent terminal-maneuver whiplash.)
 //false: original behaviour -- only ever shrink the one duration computed
-//     at flight start.
+//     at flight start, give up permanently if it runs out.
 void setReallocateTime(bool in);
 
 };

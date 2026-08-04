@@ -82,9 +82,10 @@ double g_replan_odom_blend = 1.0;
 // Leave jerk and snap free at each plan's start waypoint so acceleration can
 // ramp immediately instead of as O(t^3). See setFreeStartJerkSnap().
 bool g_free_start_jerk_snap = false;
-// Re-derive the remaining segment duration from the current distance to
-// target every replan, instead of only ever shrinking the one estimate made
-// at flight start. See ros_replan_utils::setReallocateTime().
+// Rescue the final segment's time budget with a fresh distance-based
+// estimate when the real-time countdown against the one estimate made at
+// flight start is about to go infeasible, instead of giving up permanently.
+// See ros_replan_utils::setReallocateTime().
 bool g_replan_reallocate_time = true;
 bool g_fov_enable = true;
 double g_fov_coverage_fraction = 0.5;

@@ -50,14 +50,21 @@ traj_exe:
     # t_off. Freeing them lets acceleration ramp immediately, so the plan
     # drives the vehicle instead of leaning on position error to do it.
     free_start_jerk_snap: true
-    # Re-derive the remaining segment duration from the CURRENT distance to
-    # target every replan, instead of only ever shrinking the one estimate
-    # autogenTimeSegment() made once at flight start. Without this, if the
-    # real (constrained) path takes longer than that straight-line estimate,
-    # the flight runs out of allocated replan time while still far from the
-    # target and simply stops -- confirmed in the field: repeated "can't
-    # replan ... segmentTimes[curr_v] 0" right after a fresh install, then
-    # the flight ending for good, well short of the target.
+    # Rescue the final segment's time budget with a fresh distance-based
+    # estimate (autogenTimeSegment()) when the real-time countdown against the
+    # one estimate made at flight start is about to go infeasible, instead of
+    # giving up permanently. Without this, if the real (constrained) path
+    # takes longer than that one-time straight-line estimate, the flight runs
+    # out of allocated replan time while still far from the target and simply
+    # stops -- confirmed in the field: repeated "can't replan ...
+    # segmentTimes[curr_v] 0" right after a fresh install, then the flight
+    # ending for good, well short of the target. The rescue only tops up the
+    # countdown (max(), never an unconditional overwrite) -- recomputing the
+    # heuristic every cycle regardless of need was tried and reverted: its
+    # output is highly sensitive to ordinary tracking noise near the target,
+    # and swapping it in every cycle produced its own terminal-maneuver
+    # whiplash independent of the running-out-of-budget failure this exists
+    # to fix.
     replan_reallocate_time: true
     # Field-of-view constraint
     fov_enable: false            # add the FOV inequality (keep the target in view) during replanning
