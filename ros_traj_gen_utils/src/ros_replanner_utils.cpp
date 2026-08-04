@@ -56,6 +56,8 @@ TrajBase * ros_replan_utils::getTraj(){
 bool ros_replan_utils::initialPlan(int degreeOpt){
         //std::cout << "initial plan " <<std::endl;
 	curr_v =0;
+	// Fresh flight -- see committedFinalApproach's declaration comment.
+	committedFinalApproach = false;
 	// trajectory is a single object reused across the whole session (see
 	// set_params()'s bare pointer assignment) -- it is NOT a fresh instance per
 	// call. Whatever it held before this call may currently be what poscmd_publisher
@@ -137,6 +139,8 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
         //std::cout << "initial plan " <<std::endl;
 	curr_v =0;
+	// Fresh flight -- see committedFinalApproach's declaration comment.
+	committedFinalApproach = false;
 	// See the matching comment in the other initialPlan() overload: trajectory
 	// is a single object reused for the whole session, possibly the exact one
 	// poscmd_publisher is actively flying right now, so every failure path
@@ -243,6 +247,18 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	if(curr_v == future_v.size()){
 		//No need to replan the trajectory
 		std::cout << "no need to replan the trajectory, " << std::endl;
+		return false;
+	}
+	// See committedFinalApproach's declaration comment. Once set, there is
+	// genuinely not enough real time left before the next scheduled replan
+	// call to safely re-derive anything -- decline cleanly, every call, and
+	// leave the already-installed trajectory alone. It was solved from an
+	// honest, continuously-corrected estimate, so it's trustworthy to just
+	// let fly to its own natural completion, at which point poscmd_publisher
+	// transitions itself to HOVER and ends the replan loop. No log line here
+	// -- the caller retries immediately on a false return (see traj_manager's
+	// loop), so this path can run every ~50ms until then.
+	if(committedFinalApproach){
 		return false;
 	}
 	//Anticipate your current position 
@@ -459,6 +475,18 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		// acceleration match to a different deadline. That produced its own
 		// terminal-maneuver whiplash, independent of the running-out-of-budget
 		// failure this mechanism exists to fix.)
+		//
+		// Deliberately NOT floored at minSegTime (an earlier version did this).
+		// Flooring forces this segment to span at least minSegTime regardless of
+		// how little real distance is left, which throttles the commanded
+		// approach velocity every cycle it fires: distance keeps shrinking but
+		// the time budget keeps resetting to the same floor, so the vehicle
+		// gets asymptotically slower and never quite finishes -- the target is
+		// perpetually "one floor's worth of time" away instead of ever being
+		// the thing actually commanded now. If the honest max() below still
+		// comes out below minSegTime, that's handled after the solve succeeds
+		// -- see committedFinalApproach below -- by committing to this
+		// trajectory rather than distorting its duration.
 		std::vector<double> countdown = trajectory->segmentTimes;
 		trajectory->autogenTimeSegment();
 		for(size_t i = 0; i < trajectory->segmentTimes.size() && i < countdown.size(); i++){
@@ -636,6 +664,29 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 	// the committed slice back onto the same absolute positions.
 	for(size_t i = 0; i < trajectory->segmentTimes.size(); i++){
 		segmentTimes[curr_v + i] = trajectory->segmentTimes[i];
+	}
+
+	// Commit check -- see committedFinalApproach's declaration comment. Only
+	// meaningful once we're already on the last segment of the whole path
+	// (curr_v == future_v.size()-1, so trajectory->segmentTimes here holds
+	// just that one segment's FINAL, post-retry-growth duration -- the actual
+	// number about to fly, not the pre-solve estimate). If that's honestly
+	// below minSegTime, there is not enough real time left before the next
+	// scheduled replan call to safely re-derive anything: commit now, rather
+	// than let the next call's t_elap exceed this duration and clamp its
+	// anchor query to this trajectory's endpoint.
+	if(curr_v == future_v.size()-1){
+		double lastSegmentRemaining = 0.0;
+		for(size_t i = 0; i < trajectory->segmentTimes.size(); i++){
+			lastSegmentRemaining += trajectory->segmentTimes[i];
+		}
+		if(lastSegmentRemaining < minSegTime){
+			committedFinalApproach = true;
+			std::cout << "[REPLAN] final approach: " << lastSegmentRemaining
+			          << "s remaining (< minSegTime " << minSegTime
+			          << "s) -- committing, letting this trajectory fly to completion"
+			          << std::endl;
+		}
 	}
 	//std::cout << "successful replanning" <<std::endl;
 	return true;
