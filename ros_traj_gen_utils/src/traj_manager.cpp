@@ -82,6 +82,10 @@ double g_replan_odom_blend = 1.0;
 // Leave jerk and snap free at each plan's start waypoint so acceleration can
 // ramp immediately instead of as O(t^3). See setFreeStartJerkSnap().
 bool g_free_start_jerk_snap = false;
+// Re-derive the remaining segment duration from the current distance to
+// target every replan, instead of only ever shrinking the one estimate made
+// at flight start. See ros_replan_utils::setReallocateTime().
+bool g_replan_reallocate_time = true;
 bool g_fov_enable = true;
 double g_fov_coverage_fraction = 0.5;
 // Gates executeReplanTraj's replan() loop: the initial plan is always solved
@@ -410,6 +414,8 @@ void init_params(){
 	g_replan_odom_blend = getParamOr<double>("replan_odom_blend", 1.0);
 	// See the g_free_start_jerk_snap declaration comment above.
 	g_free_start_jerk_snap = getParamOr<bool>("free_start_jerk_snap", false);
+	// See the g_replan_reallocate_time declaration comment above.
+	g_replan_reallocate_time = getParamOr<bool>("replan_reallocate_time", true);
 	g_fov_enable = getParamOr<bool>("fov_enable", true);
 	g_fov_coverage_fraction = getParamOr<double>("fov_coverage_fraction", 0.5);
 
@@ -545,6 +551,7 @@ void executeOneShotTraj(std::vector<waypoint>  vertices, poscmd_publisher * cont
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, false);
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
 	replanner.setFreeStartJerkSnap(g_free_start_jerk_snap);
+	replanner.setReallocateTime(g_replan_reallocate_time);
 	bool initial_ok = solveInitialPlan(&replanner);
 	if(!initial_ok){
 		std::cout << "[INITIAL_PLAN] FAILED -- not publishing/commanding this trajectory." << std::endl;
@@ -607,6 +614,7 @@ void executeReplanTraj(std::vector<waypoint>  vertices, poscmd_publisher * contr
 	ros_replan_utils replanner(traj, &odomListiner, &vertices, useVisual);
 	replanner.setReplanParams(g_replan_retry_step, g_replan_retry_max, g_replan_min_seg);
 	replanner.setFreeStartJerkSnap(g_free_start_jerk_snap);
+	replanner.setReallocateTime(g_replan_reallocate_time);
 	replanner.setAnchorOdom(g_replan_anchor_odom);
 	replanner.setOdomBlend(g_replan_odom_blend);
 	replanner.setFOVEnable(g_fov_enable);

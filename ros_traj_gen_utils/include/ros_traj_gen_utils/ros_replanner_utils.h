@@ -45,6 +45,11 @@ double fovCoverageFraction = 0.5;
 double retryStep = 0.2;   // seconds added to segment time(s) per failed solve
 int retryMax = 10;        // max solve retries before giving up / reverting
 double minSegTime = 0.5;  // segments shorter than this are merged/skipped
+// Whether replan() re-derives the remaining segment duration from the
+// CURRENT distance to target each cycle, instead of only ever shrinking the
+// one total duration autogenTimeSegment() computed at the very first
+// initialPlan(). See setReallocateTime().
+bool reallocateTime = true;
 public:
 ros_replan_utils();
 
@@ -112,6 +117,28 @@ void setFreeStartJerkSnap(bool in);
 //Coarse switch kept for existing configs: false forces the blend above to 0,
 //true leaves it at whatever setOdomBlend() was given.
 void setAnchorOdom(bool in);
+
+//replan() never called autogenTimeSegment() -- it only ever shrank the one
+//total duration computed once, at the very first initialPlan(), based on
+//the straight-line distance to target. That estimate knows nothing about
+//min_altitude, the perch band, or any other constraint that makes the real,
+//constrained path slower than a straight line. If it under-estimates, the
+//whole flight runs on a fixed time budget that has nothing to do with how
+//much distance is actually left -- confirmed in the field: repeated
+//"can't replan ... segmentTimes[curr_v] 0" events immediately after a
+//fresh install, followed by the flight ending (a single "replanning time
+//done, take a hover") well before the vehicle had actually reached the
+//target, with nothing ever restarting it.
+//
+//true (default): every replan re-derives the remaining duration from the
+//     anchor's actual current distance to the target, the same heuristic
+//     initialPlan() uses for the very first solve. curr_v resets to 0 along
+//     with it, since the re-derived trajectory is being treated as a fresh
+//     start from wherever the anchor is now, not a continuation of the old
+//     absolute segment numbering.
+//false: original behaviour -- only ever shrink the one duration computed
+//     at flight start.
+void setReallocateTime(bool in);
 
 };
 #endif

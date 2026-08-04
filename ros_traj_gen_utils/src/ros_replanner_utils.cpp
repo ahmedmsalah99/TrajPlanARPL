@@ -426,10 +426,30 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		trajectory->push_back(future_v[i]);
 	}
 
-	trajectory->segmentTimes.clear();
-
-	for (int i = curr_v;i < segmentTimes.size();i++){
-		trajectory->segmentTimes.push_back(segmentTimes[i]);
+	if(reallocateTime){
+		// Re-derive the remaining duration from the anchor's ACTUAL current
+		// distance to the target -- trajectory->vertices was just rebuilt above
+		// as [anchor, future_v[curr_v+1..end]], exactly the structure
+		// autogenTimeSegment() expects, so this is the identical heuristic
+		// initialPlan() uses, just re-run every cycle instead of once. See the
+		// setReallocateTime() declaration comment for why this matters: without
+		// it, a flight whose real (constrained) path takes longer than the
+		// straight-line estimate made at t=0 runs out of allocated time while
+		// still far from the target, and simply stops.
+		trajectory->autogenTimeSegment();
+		// The re-derived trajectory is being treated as a fresh start from
+		// wherever the anchor is now -- curr_v/segmentTimes (this class's
+		// absolute-indexed bookkeeping) reset to match, rather than continuing
+		// the old numbering. The sync loop after the FOV block below writes
+		// trajectory->segmentTimes back into segmentTimes[curr_v..], so this
+		// must happen before that, not after.
+		curr_v = 0;
+	}
+	else{
+		trajectory->segmentTimes.clear();
+		for (int i = curr_v;i < segmentTimes.size();i++){
+			trajectory->segmentTimes.push_back(segmentTimes[i]);
+		}
 	}
 	trajectory->applyMinAltitude();
 	trajectory->applyHorizontalLimits();
@@ -631,4 +651,8 @@ void ros_replan_utils::setOdomBlend(double in){
 
 void ros_replan_utils::setFreeStartJerkSnap(bool in){
 	freeStartJerkSnap = in;
+}
+
+void ros_replan_utils::setReallocateTime(bool in){
+	reallocateTime = in;
 }
