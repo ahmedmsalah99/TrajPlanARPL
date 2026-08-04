@@ -51,7 +51,7 @@ traj_exe:
     # drives the vehicle instead of leaning on position error to do it.
     free_start_jerk_snap: true
     # Field-of-view constraint
-    fov_enable: true            # add the FOV inequality (keep the target in view) during replanning
+    fov_enable: false            # add the FOV inequality (keep the target in view) during replanning
     fov_margin: 0.0             # FOV safety margin: keep the linearized margin >= this
     fov_coverage_fraction: 0.1  # enforce FOV over only the first this-fraction of the remaining segment (rest = final approach, left unconstrained)
     # eq.(9) trust region: how far the trajectory may sample from each FOV row's
@@ -74,7 +74,7 @@ traj_exe:
     # Seconds before arrival where the floor is lifted, letting the final
     # approach descend onto the target. Without this the floor would block the
     # very descent it exists to protect. Same idea as perch_window.
-    min_altitude_release_s: 1.0
+    min_altitude_release_s: 2.0
     # Horizontal (x,y) vel/accel/jerk limits, sampled across every segment's
     # interior (not just at waypoints/endpoints). Each value is the true
     # horizontal magnitude limit (sqrt(vx^2+vy^2) <= this, resp. accel/jerk) --
