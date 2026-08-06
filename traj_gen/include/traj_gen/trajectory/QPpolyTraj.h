@@ -49,6 +49,13 @@ protected:
 	 // too-tight release window from a boundary-condition/degrees-of-freedom
 	 // shape issue that no amount of windowing can fix.
 	 void diagnoseMinAltitudeShape(int minDeriv, const Eigen::MatrixXd& D, int numConstraint);
+	 // Diagnostic only -- see the definition's comment. Called from MTsolve()
+	 // alongside diagnoseMinAltitudeShape() when z fails, to check whether
+	 // basis()'s un-normalized (raw-seconds) time powers have made the
+	 // objective/equality matrices this solve actually used numerically
+	 // ill-conditioned, as an alternative explanation to a genuine
+	 // kinematic/DOF infeasibility.
+	 void logSolveConditioning(int dimension, const Eigen::MatrixXd& D, int numConstraint);
 
 public:
     bool fast = false; //Determines if we fast solve. Fast solve is faster
