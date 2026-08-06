@@ -145,8 +145,19 @@ void setAnchorOdom(bool in);
 //true (default): when the countdown on the LAST segment is about to go
 //     infeasible (below minSegTime), rescue it -- recompute a fresh
 //     distance-based estimate via autogenTimeSegment() from the anchor's
-//     ACTUAL current position, and take the max with the countdown. This
-//     only tops up a failing budget; a healthy countdown is left alone.
+//     ACTUAL current position. A fresh estimate that's >= the countdown
+//     always wins outright (tops up a genuinely insufficient budget). A
+//     fresh estimate that's SMALLER only wins if it undercuts the countdown
+//     by a wide margin (see kShrinkFraction in the .cpp) -- otherwise the
+//     stale countdown is kept. Without that margin requirement, ordinary
+//     tracking/vision noise near the target would let a momentarily-too-small
+//     reading cut the schedule short every time it dipped, which is the same
+//     whiplash an earlier, unconditional version of this caused. Without ANY
+//     shrink path at all, the countdown can only ever grow: confirmed in the
+//     field, a plan sitting a few cm from the target kept a stale ~0.72s
+//     schedule alive because the honest fresh estimate (~0.34s) could never
+//     win against max(), producing a multi-second stall right at the target
+//     instead of finishing.
 //     (An earlier version called autogenTimeSegment() unconditionally, every
 //     cycle, replacing the countdown outright -- that made the allocated
 //     time highly sensitive to ordinary tracking/vision noise near the
