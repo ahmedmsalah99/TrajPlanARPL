@@ -115,8 +115,17 @@ bool ros_replan_utils::initialPlan(int degreeOpt){
 	int count = 0;
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 	while (!(trajectory->checkSolved())){
+		// Growing time is the right response to a genuine "not enough time"
+		// failure, but not to a min-altitude floor conflict: the terminal
+		// velocity/acceleration the floor is fighting is fixed regardless of
+		// duration, so a longer segment forces a bigger swing to build up to
+		// it, making the violation deeper, not shallower -- confirmed in the
+		// field (violations grew monotonically with segment time across the
+		// full retry range). Shrink instead when that's the specific cause.
+		double step = trajectory->isMinAltitudeZBlocking() ? -retryStep : retryStep;
 		for(int i = 0; i < trajectory->segmentTimes.size();i++){
-			trajectory->segmentTimes[i] +=retryStep;
+			double t = trajectory->segmentTimes[i] + step;
+			trajectory->segmentTimes[i] = (t > minSegTime) ? t : minSegTime;
 		}
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
@@ -200,8 +209,17 @@ bool ros_replan_utils::initialPlan(int degreeOpt, Eigen::Matrix4d target){
 	int count = 0;
 	Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 	while (!(trajectory->checkSolved())){
+		// Growing time is the right response to a genuine "not enough time"
+		// failure, but not to a min-altitude floor conflict: the terminal
+		// velocity/acceleration the floor is fighting is fixed regardless of
+		// duration, so a longer segment forces a bigger swing to build up to
+		// it, making the violation deeper, not shallower -- confirmed in the
+		// field (violations grew monotonically with segment time across the
+		// full retry range). Shrink instead when that's the specific cause.
+		double step = trajectory->isMinAltitudeZBlocking() ? -retryStep : retryStep;
 		for(int i = 0; i < trajectory->segmentTimes.size();i++){
-			trajectory->segmentTimes[i] +=retryStep;
+			double t = trajectory->segmentTimes[i] + step;
+			trajectory->segmentTimes[i] = (t > minSegTime) ? t : minSegTime;
 		}
 		Eigen::MatrixXd coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;
@@ -558,8 +576,18 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		// curr_v..end), so indexing [curr_v] walked out of bounds as curr_v grew
 		// -- a heap write past the vector end that intermittently corrupted the
 		// trajectory and made it collapse. Add to every remaining segment (0-based).
+		//
+		// Growing time is the right response to a genuine "not enough time"
+		// failure, but not to a min-altitude floor conflict: the terminal
+		// velocity/acceleration the floor is fighting is fixed regardless of
+		// duration, so a longer segment forces a bigger swing to build up to
+		// it, making the violation deeper, not shallower -- confirmed in the
+		// field (violations grew monotonically with segment time across the
+		// full retry range). Shrink instead when that's the specific cause.
+		double step = trajectory->isMinAltitudeZBlocking() ? -retryStep : retryStep;
 		for(int i = 0; i < trajectory->segmentTimes.size(); i++){
-			trajectory->segmentTimes[i] += retryStep;
+			double t = trajectory->segmentTimes[i] + step;
+			trajectory->segmentTimes[i] = (t > minSegTime) ? t : minSegTime;
 		}
 		coeffQP =  trajectory->solve(degreeOpt);
 		count+=1;

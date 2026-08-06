@@ -336,6 +336,21 @@ bool TrajBase::checkSolved(){
 	return true;
 }
 
+bool TrajBase::isMinAltitudeZBlocking(){
+	if(!minAltitudeEnabled || traj_valid.size() <= 2){
+		return false;
+	}
+	if(traj_valid[2]){
+		return false;
+	}
+	for(size_t i = 0; i < traj_valid.size(); i++){
+		if(i != 2 && !traj_valid[i]){
+			return false; // some other dimension is also failing -- not purely a floor conflict
+		}
+	}
+	return true;
+}
+
 void TrajBase::overideSolve(){
 	for(int i =0;i<traj_valid.size();i++){
 		if (traj_valid[i]!=1){
