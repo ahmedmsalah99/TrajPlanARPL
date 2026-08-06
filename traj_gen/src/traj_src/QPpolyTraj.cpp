@@ -14,6 +14,11 @@ using namespace Eigen;
 // Named numeric constants (documented; not tuned via config).
 static constexpr double kFastSolveRegularization = 1e-3; // Tikhonov term added to Q in fastMTSolve for positive-definiteness
 static constexpr double kEmptyIneqBound = 0.1;           // trivial bound for the placeholder inequality row when no constraints exist
+// MUST stay identical to TrajBase.cpp's kInscribedSquareScale (a separate,
+// file-scope constant there -- not a class member, so not directly shared).
+// Used only by diagnoseHorizontalLimitShape() to reproduce the same
+// per-axis inscribed-square bound applyHorizontalLimits() actually enforces.
+static constexpr double kInscribedSquareScale = 0.70710678118654752440; // 1/sqrt(2)
 
 void QPpolyTraj::setQpSolveTimeout(double seconds){
 	qpSolveTimeoutS = seconds;
@@ -500,6 +505,120 @@ void QPpolyTraj::diagnoseMinAltitudeShape(int minDeriv, const Eigen::MatrixXd& D
 	}
 }
 
+// Diagnostic only, no behavior change. Same purpose as diagnoseMinAltitudeShape()
+// (called from MTsolve() when x or y fails while HORIZ_LIMIT is enabled), but for
+// applyHorizontalLimits() instead of applyMinAltitude(): calcPerchCond() sets a
+// fixed terminal velocity/acceleration on ALL THREE axes (impVel, finalAccel),
+// not just z, so the same "fixed segment time forces a bigger swing to build up
+// to it, growing worse with more time" overshoot that hit MIN_ALTITUDE could
+// just as easily push horizontal velocity/accel/jerk past HORIZ_LIMIT's caps
+// mid-flight instead. Confirmed in the field: x/y solve failures cluster in the
+// first attempts of each replan cycle (longest segments) and stop once the
+// segment shortens as the anchor gets closer -- the same duration-dependent
+// signature as the z/floor conflict. Re-solves `dimension` (0=x, 1=y) with ONLY
+// HORIZ_LIMIT's own inequality rows stripped out (identified by
+// applyHorizontalLimits()'s signature: derivOrder!=0, spanFromStart==true,
+// InEqDim(0)==1 -- MIN_ALTITUDE never uses derivOrder!=0, so this can't
+// collide with it), then samples the resulting velocity/accel/jerk (whichever
+// HORIZ_LIMIT enforces) across the whole segment against the same per-axis
+// inscribed-square bound applyHorizontalLimits() actually applies.
+void QPpolyTraj::diagnoseHorizontalLimitShape(int minDeriv, const Eigen::MatrixXd& D, int numConstraint, int dimension){
+	const char* axisName = (dimension == 0) ? "x" : "y";
+	int coeffNum = (vertices.size() - 1) * polyOrder;
+
+	std::vector<waypoint> savedVertices = vertices;
+	for(size_t i = 0; i < vertices.size(); i++){
+		std::vector<waypoint_ineq_const> kept;
+		for(size_t j = 0; j < vertices[i].ineq_constraint.size(); j++){
+			const waypoint_ineq_const& ic = vertices[i].ineq_constraint[j];
+			bool isHorizLimit = (ic.derivOrder != 0 && ic.spanFromStart && ic.InEqDim(0) == 1);
+			if(!isHorizLimit){
+				kept.push_back(ic);
+			}
+		}
+		vertices[i].ineq_constraint = kept;
+	}
+
+	QP_constraint qp = genConstraint(dimension, numConstraint);
+	QP_ineq_const ineq_qp = genInEqConstraint(dimension);
+	vertices = savedVertices; // restore immediately, before anything else can observe it
+
+	// Same normalized-time change of variables as thread_QP's real solve --
+	// see its comment on `sol` -- and diagnoseMinAltitudeShape() above.
+	Eigen::VectorXd scale = buildTimeNormalizationScale();
+	Eigen::VectorXd sol = Eigen::VectorXd::Zero(coeffNum);
+	Eigen::VectorXd g0 = Eigen::VectorXd::Zero(coeffNum);
+	Eigen::MatrixXd Qobj_scaled = scale.asDiagonal() * D * scale.asDiagonal();
+	Eigen::MatrixXd A_scaled = qp.a * scale.asDiagonal();
+	Eigen::MatrixXd C_scaled = ineq_qp.C * scale.asDiagonal();
+	Eigen::SparseMatrix<double, Eigen::RowMajor> Obj = Qobj_scaled.sparseView();
+	Eigen::MatrixXd A = A_scaled, b = qp.b;
+	Eigen::SparseMatrix<double, Eigen::RowMajor> AooQP = A.sparseView();
+	Eigen::SparseMatrix<double, Eigen::RowMajor> C = C_scaled.sparseView();
+	bool ok = false;
+	try {
+		ok = ooqpei::OoqpEigenInterface::solve(Obj, g0, AooQP, b, C, ineq_qp.d, ineq_qp.f, sol, false);
+	} catch (const std::exception& e) {
+		std::cout << "[HORIZ_LIMIT_DIAG] shape-without-limit solve threw: " << e.what()
+		          << " -- skipping" << std::endl;
+		return;
+	} catch (...) {
+		std::cout << "[HORIZ_LIMIT_DIAG] shape-without-limit solve threw a non-standard "
+		          << "exception -- skipping" << std::endl;
+		return;
+	}
+	if(!ok){
+		std::cout << "[HORIZ_LIMIT_DIAG] " << axisName << " still fails even WITHOUT the "
+		          << "horizontal limit -- the limit is not the (sole) blocker here" << std::endl;
+		return;
+	}
+	// Un-scale back to physical coefficients -- see the comment above `scale`.
+	for(int i = 0; i < coeffNum; i++){ sol(i) *= scale(i); }
+
+	double T = 0.0;
+	for(size_t s = 0; s < segmentTimes.size(); s++){ T += segmentTimes[s]; }
+	const int kSamples = 20;
+	int numSeg = segmentTimes.size();
+
+	auto sampleDeriv = [&](int derivOrder, double boundScaled) -> bool {
+		bool anyViolation = false;
+		std::cout << "[HORIZ_LIMIT_DIAG] " << axisName << " deriv=" << derivOrder
+		          << " shape without limit (bound=+/-" << boundScaled << "):";
+		for(int k = 0; k <= kSamples; k++){
+			double t = T * (double)k / (double)kSamples;
+			// Locate segment/local time exactly as evalTraj() does.
+			double localT = t;
+			int seg = 0;
+			while(seg < numSeg - 1 && segmentTimes[seg] < localT){
+				localT -= segmentTimes[seg];
+				seg += 1;
+			}
+			if(localT > segmentTimes[seg]){ localT = segmentTimes[seg]; }
+			Eigen::VectorXd power = basis(localT, derivOrder);
+			double v = 0.0;
+			for(int p = 0; p < polyOrder; p++){
+				v += power(p) * sol(seg*polyOrder + p);
+			}
+			bool violates = (v > boundScaled || v < -boundScaled);
+			anyViolation = anyViolation || violates;
+			std::cout << " [t=" << t << " v=" << v << (violates ? " VIOLATES" : "") << "]";
+		}
+		std::cout << std::endl;
+		return anyViolation;
+	};
+
+	bool anyViolation = false;
+	if(horizVelLimit > 0.0){ anyViolation = sampleDeriv(1, horizVelLimit * kInscribedSquareScale) || anyViolation; }
+	if(horizAccelLimit > 0.0){ anyViolation = sampleDeriv(2, horizAccelLimit * kInscribedSquareScale) || anyViolation; }
+	if(horizJerkLimit > 0.0){ anyViolation = sampleDeriv(3, horizJerkLimit * kInscribedSquareScale) || anyViolation; }
+	if(!anyViolation){
+		std::cout << "[HORIZ_LIMIT_DIAG] shape without limit never actually violates it -- "
+		          << "the real solve's failure is likely an interaction with another sampled "
+		          << "constraint on " << axisName << " (e.g. the perch accel band), not the "
+		          << "horizontal limit itself" << std::endl;
+	}
+}
+
 // Diagnostic only, no behavior change. basis() (see its definition) builds
 // every constraint/objective row from RAW, un-normalized powers of time --
 // t[i] = pow(time, i) for i up to polyOrder-1 (9) -- rather than a segment-
@@ -685,6 +804,23 @@ Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 		// un-normalized, raw-seconds time powers (t^0..t^9), rather than a
 		// genuine kinematic/DOF infeasibility -- see logSolveConditioning().
 		logSolveConditioning(2, D, numConstraint);
+	}
+	// [HORIZ_LIMIT_DIAG] Diagnostic only, no behavior change. calcPerchCond()
+	// sets a fixed terminal velocity/acceleration on x and y too (not just z),
+	// so the same fixed-duration-forces-a-swing overshoot that hit MIN_ALTITUDE
+	// (see above) could just as easily push horizontal velocity/accel/jerk past
+	// HORIZ_LIMIT's caps mid-flight -- confirmed in the field: x/y failures
+	// cluster in the first (longest-segment) attempts of a replan cycle and
+	// stop once the segment shortens, the same duration-dependent signature.
+	// See diagnoseHorizontalLimitShape().
+	bool horizLimitEnabled = (horizVelLimit > 0.0 || horizAccelLimit > 0.0 || horizJerkLimit > 0.0);
+	if(horizLimitEnabled && traj_valid.size() > 1 && !vertices.empty()){
+		if(!traj_valid[0]){
+			diagnoseHorizontalLimitShape(minDeriv, D, numConstraint, 0);
+		}
+		if(!traj_valid[1]){
+			diagnoseHorizontalLimitShape(minDeriv, D, numConstraint, 1);
+		}
 	}
 	// Snapshot copy: any detached, still-running thread from the timeout branch
 	// above only ever writes its own timed-out dimension's column, and that
