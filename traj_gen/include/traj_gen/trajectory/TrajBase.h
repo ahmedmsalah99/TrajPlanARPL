@@ -162,6 +162,15 @@ public:
 	int getPolyOrder();
 	bool checkSolved(); //checks if the solver returned true
 	void overideSolve(); //Dangerous function converts all valid to true forcefully.
+	// True when the last solve failed specifically because z didn't converge
+	// while MIN_ALTITUDE is enabled -- i.e. x/y/yaw are fine, only the floor
+	// constraint is the blocker. Growing segment time in response makes this
+	// WORSE, not better (confirmed in the field: the required terminal
+	// velocity is fixed regardless of duration, so a longer segment forces a
+	// bigger swing/overshoot to build up to it, digging the violation
+	// deeper) -- callers should shrink time instead of growing it when this
+	// is true.
+	bool isMinAltitudeZBlocking();
 
 	//Set time Vector automatically
 	float autogenTimeSegment();
