@@ -628,6 +628,8 @@ void TrajBase::applyMinAltitude(){
 	          << (minAltitudeAboveTarget > 0.0 ? " (target-relative)" : " (absolute)")
 	          << ", released for the final " << minAltitudeReleaseS << "s, across "
 	          << (vertices.size() - 1) << " segment(s)" << std::endl;
+	// Diagnostic only -- see the member comment.
+	lastMinAltitudeFloorZ = floorZ;
 }
 
 void TrajBase::setHorizontalLimits(double velLimit, double accelLimit, double jerkLimit){
