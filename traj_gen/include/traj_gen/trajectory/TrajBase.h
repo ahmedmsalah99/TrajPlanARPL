@@ -72,6 +72,11 @@ protected:
 	double minAltitude = 0.0;         // metres above the world origin
 	double minAltitudeAboveTarget = 0.0; // if > 0, floor is this far above the final waypoint instead
 	double minAltitudeReleaseS = 0.0;    // seconds before arrival where the floor is lifted
+	// The floor (NED z) applyMinAltitude() actually computed and applied on its
+	// most recent call -- cached purely so MTsolve() can log it alongside the
+	// anchor's real z/vz when dim=2 (z) fails to solve, without recomputing the
+	// target-relative lookup itself. Diagnostic only; not read anywhere else.
+	double lastMinAltitudeFloorZ = 0.0;
 	// Horizontal (x,y) dynamic limits, sampled across every segment's interior
 	// (not just at waypoints/endpoints) -- see applyHorizontalLimits(). Each
 	// value is the true horizontal magnitude limit (sqrt(vx^2+vy^2) <= this,

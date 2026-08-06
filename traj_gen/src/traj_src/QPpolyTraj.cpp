@@ -6,6 +6,7 @@ using namespace std;
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <limits>
 
 using namespace Eigen;
 
@@ -409,6 +410,24 @@ Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 			traj_valid[j] = false;
 			threads[j].detach();
 		}
+	}
+	// [MIN_ALTITUDE_DIAG] Diagnostic only, no behavior change. z (dim=2) has
+	// been failing intermittently in the field with no obvious trigger --
+	// suspected cause is the anchor's real altitude sitting close enough to
+	// the MIN_ALTITUDE floor that ordinary tracking noise occasionally puts it
+	// on the wrong side of the bound. Log the anchor's actual z/vz next to the
+	// floor whenever z's solve fails, so a field test can confirm or rule this
+	// out directly instead of inferring it from a smoothed post-hoc plot.
+	if(minAltitudeEnabled && traj_valid.size() > 2 && !traj_valid[2] && !vertices.empty()){
+		Eigen::VectorXd anchorPos, anchorVel;
+		double az = (vertices[0].getPos(&anchorPos) == 1 && anchorPos.rows() > 2)
+		            ? anchorPos(2) : std::numeric_limits<double>::quiet_NaN();
+		double avz = (vertices[0].getVelo(&anchorVel) == 1 && anchorVel.rows() > 2)
+		             ? anchorVel(2) : std::numeric_limits<double>::quiet_NaN();
+		std::cout << "[MIN_ALTITUDE_DIAG] z solve failed -- anchor z=" << az
+		          << " vz=" << avz << " floor=" << lastMinAltitudeFloorZ
+		          << " (anchor is " << (az <= lastMinAltitudeFloorZ ? "above/at" : "BELOW")
+		          << " the floor)" << std::endl;
 	}
 	// Snapshot copy: any detached, still-running thread from the timeout branch
 	// above only ever writes its own timed-out dimension's column, and that
