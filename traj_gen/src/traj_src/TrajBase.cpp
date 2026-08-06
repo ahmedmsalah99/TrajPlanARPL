@@ -608,17 +608,15 @@ void TrajBase::applyMinAltitude(){
 	// x, y, yaw are left free. Each vertex i (i>=1) anchors its constraint to
 	// the segment ending at it (segmentTimes[i-1]).
 	//
-	// genInEqConstraint samples the window [time-timeOffset, time), i.e. it
-	// already excludes the segment's END instant (strict '<'). Using the exact
-	// segment duration as timeOffset would start sampling at exactly time=0 --
-	// the segment's START instant, which is the PREVIOUS vertex's position.
-	// That vertex's position is a separate, hard EQUALITY constraint (e.g. the
-	// live start position from odom, or an intermediate waypoint) that may
-	// legitimately sit below the floor (a ground-level takeoff, a low perch/
-	// landing goal) -- constraining it too would make the QP infeasible on
-	// every solve. Pull the window in by one sample step (ineqSampleDt,
-	// matching genInEqConstraint) so BOTH endpoints of every segment are
-	// excluded, leaving the interior of the segment constrained.
+	// spanFromStart (see the struct member comment) opens the sampling window
+	// just after the segment's START instant, not at it: that START instant
+	// is the PREVIOUS vertex's position, a separate hard EQUALITY constraint
+	// (e.g. the live start position from odom, or an intermediate waypoint)
+	// that may legitimately sit below the floor (a ground-level takeoff, a
+	// low perch/landing goal) -- constraining it too would make the QP
+	// infeasible on every solve. genInEqConstraint's window is also
+	// strict-less-than at the END instant, so both endpoints of every
+	// segment end up excluded, leaving just the interior constrained.
 	// Where the floor sits, in NED z (smaller = higher).
 	double floorZ = -minAltitude;
 	if(minAltitudeAboveTarget > 0.0){
@@ -639,7 +637,16 @@ void TrajBase::applyMinAltitude(){
 	for(size_t i = 1; i < vertices.size(); i++){
 		waypoint_ineq_const c;
 		c.derivOrder = 0; // position
-		c.timeOffset = std::max(0.0, segmentTimes[i-1] - ineqSampleDt);
+		// spanFromStart, not a frozen timeOffset computed from segmentTimes
+		// here -- the retry loop in replan()/initialPlan() grows segmentTimes
+		// AFTER this runs, and a frozen timeOffset can't track that (see the
+		// struct member comment): the window's width stays fixed to whatever
+		// segmentTimes was at THIS instant, so as retries grow the real
+		// segment time, the window silently slides forward and stops
+		// covering the segment's start instead of actually covering more of
+		// it. spanFromStart re-derives the window from the CURRENT segment
+		// time every time it's sampled, so growth genuinely extends coverage.
+		c.spanFromStart = true;
 		// The release gate above already decided the floor applies at all
 		// this cycle -- once it does, it's enforced across the whole segment,
 		// no per-sample time cut at the end.
@@ -686,11 +693,17 @@ void TrajBase::applyHorizontalLimits(){
 	// the live start vertex's velocity/acceleration from odom) that this box
 	// could otherwise conflict with and make the QP infeasible on every solve.
 
-	auto pushBox = [&](size_t i, int derivOrder, double limit, double window){
+	// spanFromStart, not a frozen timeOffset computed from segmentTimes here --
+	// see the struct member comment (and applyMinAltitude(), which hit this
+	// same bug): a timeOffset snapshotted now can't track the retry loop
+	// growing segmentTimes afterwards, so the window would silently stop
+	// covering the segment's start as retries grow it instead of genuinely
+	// covering more of the segment.
+	auto pushBox = [&](size_t i, int derivOrder, double limit){
 		double boxLimit = limit * kInscribedSquareScale;
 		waypoint_ineq_const c;
 		c.derivOrder = derivOrder;
-		c.timeOffset = window;
+		c.spanFromStart = true;
 		c.lower = Eigen::Vector4d::Constant(-kUnbounded);
 		c.upper = Eigen::Vector4d::Constant(kUnbounded);
 		c.lower(0) = -boxLimit; c.upper(0) = boxLimit; // x
@@ -701,10 +714,9 @@ void TrajBase::applyHorizontalLimits(){
 	};
 
 	for(size_t i = 1; i < vertices.size(); i++){
-		double window = std::max(0.0, segmentTimes[i-1] - ineqSampleDt);
-		if(horizVelLimit > 0.0){ pushBox(i, 1, horizVelLimit, window); }
-		if(horizAccelLimit > 0.0){ pushBox(i, 2, horizAccelLimit, window); }
-		if(horizJerkLimit > 0.0){ pushBox(i, 3, horizJerkLimit, window); }
+		if(horizVelLimit > 0.0){ pushBox(i, 1, horizVelLimit); }
+		if(horizAccelLimit > 0.0){ pushBox(i, 2, horizAccelLimit); }
+		if(horizJerkLimit > 0.0){ pushBox(i, 3, horizJerkLimit); }
 	}
 	std::cout << "[HORIZ_LIMIT] applied: sqrt(vx^2+vy^2)<=" << horizVelLimit
 	          << " sqrt(ax^2+ay^2)<=" << horizAccelLimit

@@ -14,6 +14,26 @@ typedef struct {
     //unconstrained. 0 keeps the original behaviour (sample right up to the
     //vertex).
     double endOffset = 0.0;
+    // When true, genInEqConstraint()/genInEqJointConstraint() ignore
+    // timeOffset entirely and instead open the window near the segment's
+    // OWN start (a fixed, always-valid ineqSampleDt) every time they're
+    // called, re-deriving the window's width from whatever the segment's
+    // CURRENT duration actually is at sample-time.
+    //
+    // timeOffset alone can't express "constrain nearly this whole segment"
+    // robustly: it's a snapshot computed once, when the constraint is built
+    // (e.g. segmentTimes[i-1] - ineqSampleDt at that instant), but the QP
+    // solve's retry loop grows segmentTimes afterwards without ever
+    // recomputing it. Since sampling opens the window at (time - timeOffset)
+    // using the CURRENT (grown) time against that FROZEN timeOffset, the
+    // window's fixed width doesn't cover the newly-added time -- it silently
+    // slides forward, uncovering an amount of the segment's start equal to
+    // however much the retry loop has grown it by. Confirmed in the field:
+    // MIN_ALTITUDE (which wants "constrain nearly the whole segment") was
+    // observed needing many retries to solve, and each one was quietly
+    // shrinking how much of the segment the floor constraint actually
+    // covered rather than genuinely finding a compliant shape.
+    bool spanFromStart = false;
     Eigen::Vector4d lower, upper;
     Eigen::Vector4d InEqDim; //Declares wether this constraint is active or not
 } waypoint_ineq_const;

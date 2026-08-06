@@ -761,8 +761,17 @@ QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 			// window it actually walks starts at time-timeOffset and stops
 			// at time-endOffset, so subtract the released tail here too or the
 			// estimate stops being tight. It must stay an OVER-estimate.
-			double toff = vertices[i].ineq_constraint[j].timeOffset
-			            - vertices[i].ineq_constraint[j].endOffset;
+			// spanFromStart constraints don't have a meaningful timeOffset --
+			// re-derive the same width the sampling loop below will use, from
+			// the CURRENT segmentTimes[i-1] (see the struct member comment).
+			double toff;
+			if(vertices[i].ineq_constraint[j].spanFromStart){
+				toff = segmentTimes[i-1] - vertices[i].ineq_constraint[j].endOffset - dt;
+			}
+			else{
+				toff = vertices[i].ineq_constraint[j].timeOffset
+				     - vertices[i].ineq_constraint[j].endOffset;
+			}
 			if(toff < 0.0){ toff = 0.0; }
 			numConst += (vertices[i].ineq_constraint[j].InEqDim(dimension)*toff/dt+1);
 		}
@@ -795,7 +804,12 @@ QP_ineq_const QPpolyTraj::genInEqConstraint( int dimension)
 			if(vertices[i].ineq_constraint[j].InEqDim(dimension)==1){
 				double time = segmentTimes[i-1]; //modify to be any waypoints
 				waypoint_ineq_const pon_ineq = vertices[i].ineq_constraint[j];
-				double toff = time - pon_ineq.timeOffset;
+				// spanFromStart: open the window at a fixed, always-valid offset
+				// from the segment's OWN start (dt) instead of computing it from
+				// a frozen timeOffset against the CURRENT (possibly retry-grown)
+				// time -- see the struct member comment for why the latter
+				// silently loses coverage as segmentTimes grows.
+				double toff = pon_ineq.spanFromStart ? dt : (time - pon_ineq.timeOffset);
 				//Don't sample before the segment starts if the window is longer than the segment
 				if(toff < 0){ toff = 0; }
 				//Close the window early when a tail has been released (see
@@ -1069,10 +1083,16 @@ QP_ineq_const QPpolyTraj::genInEqJointConstraint(){
 				// matrix genInEqConstraint(j) allocated from ITS count. If the two
 				// disagree by even one row, assigning the smaller matrix into the
 				// larger block trips Eigen's DenseBase::resize() assertion.
-				// That means matching both the sampling step (ineqSampleDt) and
-				// the released tail (endOffset).
-				double toff = vertices[i].ineq_constraint[j].timeOffset
-				            - vertices[i].ineq_constraint[j].endOffset;
+				// That means matching both the sampling step (ineqSampleDt), the
+				// released tail (endOffset), AND spanFromStart's re-derivation.
+				double toff;
+				if(vertices[i].ineq_constraint[j].spanFromStart){
+					toff = segmentTimes[i-1] - vertices[i].ineq_constraint[j].endOffset - ineqSampleDt;
+				}
+				else{
+					toff = vertices[i].ineq_constraint[j].timeOffset
+					     - vertices[i].ineq_constraint[j].endOffset;
+				}
 				if(toff < 0.0){ toff = 0.0; }
 				numConst += (vertices[i].ineq_constraint[j].InEqDim(k)*toff/ineqSampleDt+1);
 			}
