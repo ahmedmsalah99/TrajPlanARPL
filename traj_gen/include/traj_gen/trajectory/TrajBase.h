@@ -33,8 +33,34 @@ protected:
 	virtual QP_ineq_const genInEqJointConstraint()=0; //generates inequalty constraints. 
 	virtual Eigen::MatrixXd generateJointObjFun(int minDeriv)=0; // Helper function for the gerenate
 	bool condCheck(); //Checks if the global condition is satisified 
-	//A vector to indicate if the first 4 dimensions are solved previously
-	std::vector<bool> traj_valid{ false, false, false,false }; 
+	//A vector to indicate if the first 4 dimensions are solved previously.
+	//
+	//MUST NOT be std::vector<bool>: that specialization bit-packs multiple
+	//elements into a single machine word with no synchronization, so writes
+	//to DIFFERENT indices from DIFFERENT threads are a data race on the same
+	//underlying word, not independent memory locations. MTsolve() below
+	//launches one boost::thread per dimension (thread_QP), each writing its
+	//own traj_valid[dimension] = true concurrently with the others AND with
+	//the main thread's own traj_valid[j] = false resets (interleaved with
+	//launching each thread in the same loop) -- exactly the unsynchronized
+	//concurrent-write pattern that corrupts a bit-packed vector<bool>. A lost
+	//update can silently flip a bit either way: a genuinely-succeeded
+	//dimension's true write can vanish (spurious retry), or -- the dangerous
+	//direction -- a stale true bit left over from an earlier solve can survive
+	//a concurrent reset and get read back by checkSolved() as "this dimension
+	//solved", even though this cycle's thread for that dimension never took
+	//the success branch and left its coeff column at Zero() (see thread_QP's
+	//comment). That misclassifies a genuinely-failed cycle as fully solved,
+	//so the retry loop exits early and installs a trajectory with an
+	//all-zero column for the failed dimension -- confirmed in the field as
+	//an anchor position/velocity reading exact numerical zero right after a
+	//cycle where that axis had been failing, and NOT fixed by making
+	//thread_QP leave a failed column cleanly at zero (that fix stopped OOQP's
+	//garbage leaking in, but did nothing for traj_valid itself being wrong).
+	//std::vector<char> stores one full byte per element at distinct
+	//addresses, so concurrent writes to different indices are genuinely
+	//independent and race-free.
+	std::vector<char> traj_valid{ false, false, false,false };
 
 	//A single cost vector used 
 	Eigen::VectorXd costVector;
