@@ -87,10 +87,17 @@ traj_exe:
     # at solve time and moves with the visual target, so an absolute figure
     # cannot track it.
     min_altitude_above_target: 0.4
-    # Seconds before arrival where the floor is lifted, letting the final
-    # approach descend onto the target. Without this the floor would block the
-    # very descent it exists to protect. Same idea as perch_window.
-    min_altitude_release_s: 2.0
+    # Horizontal (x,y) distance from the target below which the floor is
+    # lifted entirely for that replan cycle, letting the final approach
+    # descend onto the target. Without this the floor would block the very
+    # descent it exists to protect. Distance-based rather than time-based: a
+    # time-before-THIS-segment's-own-end release resets every replan cycle,
+    # which can demand the vehicle climb back above the floor even when it's
+    # already correctly below it, descending, per an earlier plan's own
+    # (now-superseded) release phase -- confirmed in the field via
+    # [MIN_ALTITUDE_DIAG]: the anchor was found already below the floor while
+    # a freshly built segment's time-based release still fought it.
+    min_altitude_release_dist: 0.5
     # Horizontal (x,y) vel/accel/jerk limits, sampled across every segment's
     # interior (not just at waypoints/endpoints). Each value is the true
     # horizontal magnitude limit (sqrt(vx^2+vy^2) <= this, resp. accel/jerk) --
