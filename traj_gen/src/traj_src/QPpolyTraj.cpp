@@ -283,7 +283,7 @@ Eigen::MatrixXd QPpolyTraj::SMsolve(int minDeriv)
 // or promptly, rather than waiting out the full timeout, if OOQP throws
 // before the deadline.
 void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint qp,
-   QP_ineq_const ineq_qp, std::shared_ptr<Eigen::MatrixXd> coeff, std::vector<bool>* traj_valid,
+   QP_ineq_const ineq_qp, std::shared_ptr<Eigen::MatrixXd> coeff, std::vector<char>* traj_valid,
    std::shared_ptr<std::atomic<bool>> done){
     static const char* kAxisName[4] = {"x", "y", "z", "yaw"};
     const char* axisName = (dimension >= 0 && dimension < 4) ? kAxisName[dimension] : "?";
