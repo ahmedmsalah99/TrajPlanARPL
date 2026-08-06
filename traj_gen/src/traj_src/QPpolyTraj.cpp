@@ -285,7 +285,7 @@ Eigen::MatrixXd QPpolyTraj::SMsolve(int minDeriv)
 // before the deadline.
 void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint qp,
    QP_ineq_const ineq_qp, std::shared_ptr<Eigen::MatrixXd> coeff, std::vector<char>* traj_valid,
-   std::shared_ptr<std::atomic<bool>> done){
+   std::shared_ptr<std::atomic<bool>> done, Eigen::VectorXd scale){
     static const char* kAxisName[4] = {"x", "y", "z", "yaw"};
     const char* axisName = (dimension >= 0 && dimension < 4) ? kAxisName[dimension] : "?";
 	// OOQP's MA27 backend can throw std::runtime_error ("MA27 cannot factor
@@ -297,13 +297,36 @@ void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint
 	// gets set true.
 	try {
 		const bool ignoreUnknownError = false;
+		// `sol` here is solved in the SCALED (normalized-time) variable space,
+		// not the physical coefficient space -- see `scale`'s construction in
+		// MTsolve() for the derivation. x_i (physical) = scale(i) * y_i
+		// (solved). Column-scaling A/C and congruence-scaling Q by `scale` is
+		// algebraically identical to building this same QP directly from a
+		// basis normalized to segment-local time tau=t/T in [0,1]: since
+		// sum_i x_i*t^i = sum_i (scale(i)*y_i)*t^i = sum_i y_i*(t/T)^i when
+		// scale(i) = T^-i, this is exactly the change of variables that
+		// normalization would produce, without touching genConstraint(),
+		// genInEqConstraint(), generateObjFun(), evalTraj(), or basis() at
+		// all -- every b/d/f value (physical positions, velocities, etc.)
+		// and every row this function receives is completely unchanged;
+		// only the linear-algebra objects actually hitting OOQP are rescaled,
+		// and the result is un-scaled back to physical coefficients below
+		// before being written into coeff. Fixes basis()'s un-normalized
+		// t^0..t^9 powers spanning ~20 orders of magnitude within a single
+		// multi-second segment, confirmed in the field via
+		// [MIN_ALTITUDE_DIAG] conditioning check: cond(objective D)=inf on
+		// every failing z solve, cond(equality A) climbing into the 1e6-1e8
+		// range as retries grew the segment time.
 		Eigen::VectorXd sol = Eigen::VectorXd::Zero(coeffNum);
 		Eigen::VectorXd g0 = Eigen::VectorXd::Zero(coeffNum);
+		Eigen::MatrixXd Qobj_scaled = scale.asDiagonal() * Qobj * scale.asDiagonal();
+		Eigen::MatrixXd A_scaled = qp.a * scale.asDiagonal();
+		Eigen::MatrixXd C_scaled = ineq_qp.C * scale.asDiagonal();
 		//Create Copy since the quadprog changes the X&T Q  X matrix each run
-		Eigen::SparseMatrix<double, Eigen::RowMajor> Obj = Qobj.sparseView();
-		Eigen::MatrixXd A = qp.a, b = qp.b;
+		Eigen::SparseMatrix<double, Eigen::RowMajor> Obj = Qobj_scaled.sparseView();
+		Eigen::MatrixXd A = A_scaled, b = qp.b;
 		Eigen::SparseMatrix<double, Eigen::RowMajor> AooQP = A.sparseView();
-		Eigen::SparseMatrix<double, Eigen::RowMajor> C = ineq_qp.C.sparseView();
+		Eigen::SparseMatrix<double, Eigen::RowMajor> C = C_scaled.sparseView();
 	  /*!
 	   * Solve min 1/2 x' Q x + c' x, such that A x = b, and d <= Cx <= f
 	   * @param [in] Q a symmetric positive semidefinite matrix (nxn)
@@ -340,7 +363,10 @@ void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint
 			// failed dimension's column a clean, known zero rather than
 			// OOQP's unpredictable leftover state.
 			for (int i =0;i<coeffNum;i++){
-				coeff->operator()(i,dimension)  = sol[i];
+				// Un-scale: sol is in the normalized-time variable space (see
+				// the comment above `sol`'s declaration); coeff must hold the
+				// physical coefficients basis()/evalTraj() expect.
+				coeff->operator()(i,dimension)  = scale(i) * sol[i];
 			}
 		}
 		else{
@@ -536,6 +562,21 @@ Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 	std::vector<std::shared_ptr<std::atomic<bool>>> done(dim);
    //generate object function
    	Eigen::MatrixXd D = generateObjFun(minDeriv);
+	// Per-coefficient scale for thread_QP's normalized-time change of
+	// variables (see its comment on `sol`): column i of segment s's
+	// polyOrder-wide block gets scale = segmentTimes[s]^-i. This is what
+	// makes solving for y (in thread_QP) equivalent to using a basis
+	// normalized to segment-local time tau=t/T in [0,1], instead of
+	// basis()'s raw seconds t^0..t^9 -- the source of the catastrophic
+	// ill-conditioning confirmed via [MIN_ALTITUDE_DIAG]'s conditioning
+	// check (cond(objective D)=inf on every failing solve).
+	Eigen::VectorXd scale = Eigen::VectorXd::Ones(coeffNum);
+	for(int s = 0; s < numberSegments; s++){
+		double T = segmentTimes[s];
+		for(int p = 0; p < polyOrder; p++){
+			scale(s*polyOrder + p) = (T > 1e-9) ? pow(T, -p) : 1.0;
+		}
+	}
 	for (int j = 0; j < dim; j++){
 		QP_constraint qp = genConstraint( j,numConstraint); //each dimension has its unique equality constraint
 		QP_ineq_const ineq_qp = genInEqConstraint(j);
@@ -544,7 +585,7 @@ Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 		// stale-true from an earlier, unrelated solve.
 		traj_valid[j] = false;
 		done[j] = std::make_shared<std::atomic<bool>>(false);
-		threads.push_back(boost::thread(thread_QP, j,  D, coeffNum, qp,ineq_qp,coeff,&traj_valid,done[j]));
+		threads.push_back(boost::thread(thread_QP, j,  D, coeffNum, qp,ineq_qp,coeff,&traj_valid,done[j],scale));
 	}
 	// Bounded join: OOQP occasionally fails to converge/terminate on a
 	// numerically tight problem (see the qpSolveTimeoutS member comment in
