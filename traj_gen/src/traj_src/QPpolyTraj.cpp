@@ -322,13 +322,29 @@ void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint
 						sol,ignoreUnknownError)){
 			std::cout << "QP successful generation [dim=" << dimension << " (" << axisName << ")]" << std::endl;
 			traj_valid->operator[](dimension) = true;
+			// Only write this dimension's column when the solve actually
+			// succeeded. `sol` is zero-initialized above, but OOQP can leave it
+			// holding a partial/invalid intermediate iterate on a run that
+			// ultimately returns false -- writing that into the shared coeff
+			// matrix regardless of success let a failed dimension's garbage
+			// leak into coeffSolved (which MTsolve() copies from coeff
+			// unconditionally), even though traj_valid correctly marked that
+			// dimension as not solved. Confirmed in the field: a replan cycle
+			// where z kept failing produced an evaluated position with z at
+			// (numerically) exactly zero -- the world origin -- for a
+			// trajectory whose real altitude was nowhere near it, exactly
+			// what a zero/garbage coefficient column evaluates to. Leaving
+			// coeff's column at whatever it already was (its Zero()
+			// initialization from MTsolve(), untouched) instead keeps a
+			// failed dimension's column a clean, known zero rather than
+			// OOQP's unpredictable leftover state.
+			for (int i =0;i<coeffNum;i++){
+				coeff->operator()(i,dimension)  = sol[i];
+			}
 		}
 		else{
 			std::cout << "QP Failed generation [dim=" << dimension << " (" << axisName << ")]"
 			          << " numIneqRows=" << ineq_qp.d.rows() << std::endl;
-		}
-		for (int i =0;i<coeffNum;i++){
-			coeff->operator()(i,dimension)  = sol[i];
 		}
 	} catch (const std::exception& e) {
 		std::cout << "[QP_EXCEPTION] OOQP threw on dim=" << dimension << " (" << axisName
