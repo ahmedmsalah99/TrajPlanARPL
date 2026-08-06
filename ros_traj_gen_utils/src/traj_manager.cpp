@@ -872,7 +872,8 @@ int main(int argc, char** argv)
 		getParamOr<bool>("min_altitude_enable", false),
 		getParamOr<double>("min_altitude", 0.3),
 		getParamOr<double>("min_altitude_above_target", 0.0),
-		getParamOr<double>("min_altitude_release_dist", 0.0));
+		getParamOr<double>("min_altitude_release_dist", 0.0),
+		getParamOr<double>("min_altitude_release_s", 0.0));
 	//Horizontal (x,y) vel/accel/jerk limits, sampled across every segment's
 	//interior (not just at waypoints). Each is independently optional: <= 0
 	//(the default) disables that derivative order's limit.

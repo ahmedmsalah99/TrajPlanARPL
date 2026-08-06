@@ -571,11 +571,12 @@ void TrajBase::setFovTrustRegion(double pos, double acc, double yaw){
 	fovTrustYaw = yaw;
 }
 
-void TrajBase::setMinAltitude(bool enable, double minAlt, double aboveTarget, double releaseDist){
+void TrajBase::setMinAltitude(bool enable, double minAlt, double aboveTarget, double releaseDist, double releaseS){
 	minAltitudeEnabled = enable;
 	minAltitude = minAlt;
 	minAltitudeAboveTarget = aboveTarget;
 	minAltitudeReleaseDist = releaseDist;
+	minAltitudeReleaseS = releaseS;
 }
 
 void TrajBase::applyMinAltitude(){
@@ -712,6 +713,28 @@ void TrajBase::applyMinAltitude(){
 						          << "floor applied across the whole " << segT << "s" << std::endl;
 					}
 				}
+			}
+		}
+		// Also release the last minAltitudeReleaseS seconds of the FINAL
+		// segment unconditionally, regardless of horizontal distance -- the
+		// original design, before minAltitudeReleaseDist existed. Distance-
+		// only release gives the VERTICAL/climb dimension no relief at all
+		// while the vehicle is still far away horizontally: confirmed in the
+		// field, an anchor near the ground climbing toward a target ~8m up
+		// (still far horizontally) had the floor rigidly enforced across
+		// virtually the whole segment with zero terminal give, and the
+		// natural climb never got within ~0.35m of the floor at ANY segment
+		// duration tried -- not a timing problem, a missing release. Take
+		// whichever of the two release conditions gives MORE release (the
+		// larger endOffset), so both apply together rather than one
+		// replacing the other.
+		if(minAltitudeReleaseS > 0.0 && i == vertices.size() - 1 && !skipSeg){
+			double timeEndOffset = std::min(minAltitudeReleaseS, segT);
+			if(timeEndOffset > endOffsetForSeg){
+				std::cout << "[MIN_ALTITUDE] segment " << i << ": also releasing the final "
+				          << timeEndOffset << "s unconditionally (min_altitude_release_s="
+				          << minAltitudeReleaseS << ")" << std::endl;
+				endOffsetForSeg = timeEndOffset;
 			}
 		}
 		if(skipSeg){

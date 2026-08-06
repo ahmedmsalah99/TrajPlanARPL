@@ -107,6 +107,21 @@ protected:
 	// while a freshly built segment's time-based release still demanded it
 	// climb back above the floor for its own now-restarted window.
 	double minAltitudeReleaseDist = 0.0;
+	// Seconds before the end of the final segment where the floor is ALSO
+	// released, regardless of horizontal distance. The original design (before
+	// minAltitudeReleaseDist existed) used this exclusively; it was replaced
+	// because a purely time-before-THIS-segment's-own-end release resets every
+	// replan cycle and can contradict the anchor's real state. But horizontal
+	// distance alone gives the VERTICAL/climb dimension no relief at all while
+	// the vehicle is still far away horizontally -- confirmed in the field:
+	// an anchor near the ground climbing toward a target ~8m up, still far
+	// horizontally, had the floor rigidly enforced across virtually the whole
+	// segment with zero terminal give, something the old time-based release
+	// always provided. Restored as a second, independent release condition
+	// (OR'd with the distance one, via whichever yields more release) rather
+	// than a replacement, so both the consistency fix AND the guaranteed
+	// terminal freedom apply together.
+	double minAltitudeReleaseS = 0.0;
 	// The floor (NED z) applyMinAltitude() actually computed and applied on its
 	// most recent call -- cached purely so MTsolve() can log it alongside the
 	// anchor's real z/vz when dim=2 (z) fails to solve, without recomputing the
@@ -239,8 +254,12 @@ public:
 	//  descent it exists to protect. Distance-based (not time-based) so the
 	//  release decision depends on where the vehicle actually is, not on a
 	//  clock that restarts every time a new segment is built.
+	//releaseS: seconds before the end of the final segment where the floor is
+	//  ALSO released, regardless of horizontal distance -- see
+	//  minAltitudeReleaseS's member comment for why this is needed alongside
+	//  releaseDist, not instead of it.
 	void setMinAltitude(bool enable, double minAlt, double aboveTarget = 0.0,
-	                    double releaseDist = 0.0);
+	                    double releaseDist = 0.0, double releaseS = 0.0);
 	//Push the minimum-altitude inequality onto every vertex (1..end) of the
 	//CURRENT vertex list. Call after segmentTimes is set for this plan (e.g.
 	//after autogenTimeSegment(), or after the replan-rebuilt segmentTimes) --
