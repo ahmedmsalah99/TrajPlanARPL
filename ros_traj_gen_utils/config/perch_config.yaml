@@ -98,6 +98,18 @@ traj_exe:
     # [MIN_ALTITUDE_DIAG]: the anchor was found already below the floor while
     # a freshly built segment's time-based release still fought it.
     min_altitude_release_dist: 0.5
+    # Also release the floor for the last N seconds of the final segment,
+    # unconditionally, regardless of horizontal distance (the original
+    # release mechanism, before min_altitude_release_dist existed). Distance-
+    # only release gives the VERTICAL/climb dimension no relief at all while
+    # the vehicle is still far away horizontally -- confirmed in the field: an
+    # anchor near the ground climbing toward a target ~8m up, still far
+    # horizontally, had the floor rigidly enforced across virtually the whole
+    # segment with zero terminal give, and the natural climb never got within
+    # ~0.35m of the floor at any segment duration tried. Applied together
+    # with min_altitude_release_dist (whichever releases more wins), not
+    # instead of it.
+    min_altitude_release_s: 2.0
     # Horizontal (x,y) vel/accel/jerk limits, sampled across every segment's
     # interior (not just at waypoints/endpoints). Each value is the true
     # horizontal magnitude limit (sqrt(vx^2+vy^2) <= this, resp. accel/jerk) --
