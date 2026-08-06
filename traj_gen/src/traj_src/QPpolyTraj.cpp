@@ -428,12 +428,24 @@ void QPpolyTraj::diagnoseMinAltitudeShape(int minDeriv, const Eigen::MatrixXd& D
 	QP_ineq_const ineq_qp = genInEqConstraint(dimension);
 	vertices = savedVertices; // restore immediately, before anything else can observe it
 
+	// Same normalized-time change of variables as thread_QP's real solve
+	// (see its comment on `sol`) -- without this, this diagnostic solves on
+	// the same catastrophically ill-conditioned raw-time basis the real
+	// solve used to, and its answer (including whether it solves at all)
+	// isn't representative of what the actual, now-normalized solve path
+	// produces. `sol` below comes back in the normalized (y) variable space
+	// and is un-scaled to physical coefficients immediately after a
+	// successful solve, before anything samples it.
+	Eigen::VectorXd scale = buildTimeNormalizationScale();
 	Eigen::VectorXd sol = Eigen::VectorXd::Zero(coeffNum);
 	Eigen::VectorXd g0 = Eigen::VectorXd::Zero(coeffNum);
-	Eigen::SparseMatrix<double, Eigen::RowMajor> Obj = D.sparseView();
-	Eigen::MatrixXd A = qp.a, b = qp.b;
+	Eigen::MatrixXd Qobj_scaled = scale.asDiagonal() * D * scale.asDiagonal();
+	Eigen::MatrixXd A_scaled = qp.a * scale.asDiagonal();
+	Eigen::MatrixXd C_scaled = ineq_qp.C * scale.asDiagonal();
+	Eigen::SparseMatrix<double, Eigen::RowMajor> Obj = Qobj_scaled.sparseView();
+	Eigen::MatrixXd A = A_scaled, b = qp.b;
 	Eigen::SparseMatrix<double, Eigen::RowMajor> AooQP = A.sparseView();
-	Eigen::SparseMatrix<double, Eigen::RowMajor> C = ineq_qp.C.sparseView();
+	Eigen::SparseMatrix<double, Eigen::RowMajor> C = C_scaled.sparseView();
 	bool ok = false;
 	try {
 		ok = ooqpei::OoqpEigenInterface::solve(Obj, g0, AooQP, b, C, ineq_qp.d, ineq_qp.f, sol, false);
@@ -451,6 +463,8 @@ void QPpolyTraj::diagnoseMinAltitudeShape(int minDeriv, const Eigen::MatrixXd& D
 		          << "the floor is not the (sole) blocker here" << std::endl;
 		return;
 	}
+	// Un-scale back to physical coefficients -- see the comment above `scale`.
+	for(int i = 0; i < coeffNum; i++){ sol(i) *= scale(i); }
 
 	double T = 0.0;
 	for(size_t s = 0; s < segmentTimes.size(); s++){ T += segmentTimes[s]; }
@@ -509,24 +523,60 @@ void QPpolyTraj::logSolveConditioning(int dimension, const Eigen::MatrixXd& D, i
 	    ? pow(segT, polyOrder - 1) / pow(ineqSampleDt, polyOrder - 1)
 	    : std::numeric_limits<double>::infinity();
 
-	Eigen::JacobiSVD<Eigen::MatrixXd> svdD(D);
-	Eigen::VectorXd svD = svdD.singularValues();
-	double condD = (svD.size() > 0 && svD(svD.size() - 1) > 1e-300)
-	    ? svD(0) / svD(svD.size() - 1) : std::numeric_limits<double>::infinity();
+	auto condOf = [](const Eigen::MatrixXd& M) -> double {
+		Eigen::JacobiSVD<Eigen::MatrixXd> svd(M);
+		Eigen::VectorXd sv = svd.singularValues();
+		return (sv.size() > 0 && sv(sv.size() - 1) > 1e-300)
+		    ? sv(0) / sv(sv.size() - 1) : std::numeric_limits<double>::infinity();
+	};
 
+	double condD_raw = condOf(D);
 	QP_constraint qp = genConstraint(dimension, numConstraint);
-	Eigen::JacobiSVD<Eigen::MatrixXd> svdA(qp.a);
-	Eigen::VectorXd svA = svdA.singularValues();
-	double condA = (svA.size() > 0 && svA(svA.size() - 1) > 1e-300)
-	    ? svA(0) / svA(svA.size() - 1) : std::numeric_limits<double>::infinity();
+	double condA_raw = condOf(qp.a);
+
+	// Same normalized-time change of variables thread_QP's real solve
+	// applies (see its comment on `sol`) -- reported alongside the raw
+	// numbers so a field test directly confirms the fix on the ACTUAL solve
+	// path, instead of inferring it indirectly from solve latency. Before
+	// this, this function reported only condD_raw/condA_raw -- the same
+	// numbers it always had, regardless of thread_QP's fix, which made a
+	// still-fixed solve look identically broken in this log line.
+	Eigen::VectorXd scale = buildTimeNormalizationScale();
+	double condD_scaled = condOf(scale.asDiagonal() * D * scale.asDiagonal());
+	double condA_scaled = condOf(qp.a * scale.asDiagonal());
 
 	std::cout << "[MIN_ALTITUDE_DIAG] conditioning check -- segT=" << segT
 	          << " ineqSampleDt=" << ineqSampleDt
 	          << " raw basis magnitude ratio (t^" << (polyOrder - 1) << " at segT vs at dt)="
 	          << basisRatio
-	          << " cond(objective D)=" << condD
-	          << " cond(equality A)=" << condA
+	          << " cond(objective D) raw=" << condD_raw << " normalized=" << condD_scaled
+	          << " cond(equality A) raw=" << condA_raw << " normalized=" << condA_scaled
 	          << std::endl;
+}
+
+// Per-coefficient scale for the normalized-time change of variables x_i =
+// scale(i)*y_i (see thread_QP's comment on `sol` for the full derivation):
+// column i of segment s's polyOrder-wide block gets scale = segmentTimes[s]^-p,
+// where p is that column's power within its own segment. Shared by MTsolve's
+// real per-dimension solve AND both z-failure diagnostics
+// (diagnoseMinAltitudeShape, logSolveConditioning) so all three interpret
+// coefficients in exactly the same normalized space -- a single source of
+// truth. Before this was factored out, the two diagnostics each built their
+// own solve directly from the raw (un-normalized) D/A/C, so they kept
+// reporting the pre-fix numbers (e.g. cond(D)=inf) even after MTsolve's real
+// solve had already moved to the normalized ones, which looked like the fix
+// hadn't done anything when it had.
+Eigen::VectorXd QPpolyTraj::buildTimeNormalizationScale(){
+	int coeffNum = (vertices.size() - 1) * polyOrder;
+	int numberSegments = segmentTimes.size();
+	Eigen::VectorXd scale = Eigen::VectorXd::Ones(coeffNum);
+	for(int s = 0; s < numberSegments; s++){
+		double T = segmentTimes[s];
+		for(int p = 0; p < polyOrder; p++){
+			scale(s*polyOrder + p) = (T > 1e-9) ? pow(T, -p) : 1.0;
+		}
+	}
+	return scale;
 }
 
 Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
@@ -562,21 +612,13 @@ Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 	std::vector<std::shared_ptr<std::atomic<bool>>> done(dim);
    //generate object function
    	Eigen::MatrixXd D = generateObjFun(minDeriv);
-	// Per-coefficient scale for thread_QP's normalized-time change of
-	// variables (see its comment on `sol`): column i of segment s's
-	// polyOrder-wide block gets scale = segmentTimes[s]^-i. This is what
+	// See buildTimeNormalizationScale()'s comment for the derivation --
 	// makes solving for y (in thread_QP) equivalent to using a basis
 	// normalized to segment-local time tau=t/T in [0,1], instead of
 	// basis()'s raw seconds t^0..t^9 -- the source of the catastrophic
 	// ill-conditioning confirmed via [MIN_ALTITUDE_DIAG]'s conditioning
 	// check (cond(objective D)=inf on every failing solve).
-	Eigen::VectorXd scale = Eigen::VectorXd::Ones(coeffNum);
-	for(int s = 0; s < numberSegments; s++){
-		double T = segmentTimes[s];
-		for(int p = 0; p < polyOrder; p++){
-			scale(s*polyOrder + p) = (T > 1e-9) ? pow(T, -p) : 1.0;
-		}
-	}
+	Eigen::VectorXd scale = buildTimeNormalizationScale();
 	for (int j = 0; j < dim; j++){
 		QP_constraint qp = genConstraint( j,numConstraint); //each dimension has its unique equality constraint
 		QP_ineq_const ineq_qp = genInEqConstraint(j);

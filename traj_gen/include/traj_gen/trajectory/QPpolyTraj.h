@@ -56,6 +56,12 @@ protected:
 	 // ill-conditioned, as an alternative explanation to a genuine
 	 // kinematic/DOF infeasibility.
 	 void logSolveConditioning(int dimension, const Eigen::MatrixXd& D, int numConstraint);
+	 // Shared by MTsolve()'s real per-dimension solve and both diagnostics
+	 // above -- see the definition's comment. Single source of truth for the
+	 // normalized-time change of variables (x_i = scale(i)*y_i) thread_QP
+	 // applies, so a solve path and its diagnostics can never silently drift
+	 // out of sync with each other again.
+	 Eigen::VectorXd buildTimeNormalizationScale();
 
 public:
     bool fast = false; //Determines if we fast solve. Fast solve is faster
