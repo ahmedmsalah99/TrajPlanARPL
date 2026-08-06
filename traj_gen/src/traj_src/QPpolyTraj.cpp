@@ -2,6 +2,7 @@
 using namespace std;
 #include <ctime>
 #include <Eigen/Dense>
+#include <Eigen/SVD>
 #include <memory>
 #include <atomic>
 #include <chrono>
@@ -459,6 +460,49 @@ void QPpolyTraj::diagnoseMinAltitudeShape(int minDeriv, const Eigen::MatrixXd& D
 	}
 }
 
+// Diagnostic only, no behavior change. basis() (see its definition) builds
+// every constraint/objective row from RAW, un-normalized powers of time --
+// t[i] = pow(time, i) for i up to polyOrder-1 (9) -- rather than a segment-
+// duration-normalized fraction. For a several-second segment that spans an
+// enormous dynamic range within one matrix: e.g. t^9 at t=0.05s is ~2e-12,
+// while at t=9s it is ~4e8 -- about 20 orders of magnitude apart, deep into
+// the range where double-precision (~15-17 significant digits) can no
+// longer represent both scales in the same linear system without severe
+// loss of precision. diagnoseMinAltitudeShape() found the unconstrained
+// shape's overshoot getting WORSE (not better) as retries grew the segment
+// time -- the opposite of what a genuine kinematic/DOF tightness would do,
+// but exactly what worsening numerical conditioning would do. This computes
+// the actual condition numbers (largest/smallest singular value) of the
+// EXACT objective (D) and equality-constraint (A) matrices this failing
+// solve fed to OOQP, plus the raw basis dynamic range directly, so a field
+// test can confirm or rule this out with real numbers instead of estimates.
+void QPpolyTraj::logSolveConditioning(int dimension, const Eigen::MatrixXd& D, int numConstraint){
+	double segT = 0.0;
+	for(size_t s = 0; s < segmentTimes.size(); s++){ segT += segmentTimes[s]; }
+	double basisRatio = (ineqSampleDt > 1e-9)
+	    ? pow(segT, polyOrder - 1) / pow(ineqSampleDt, polyOrder - 1)
+	    : std::numeric_limits<double>::infinity();
+
+	Eigen::JacobiSVD<Eigen::MatrixXd> svdD(D);
+	Eigen::VectorXd svD = svdD.singularValues();
+	double condD = (svD.size() > 0 && svD(svD.size() - 1) > 1e-300)
+	    ? svD(0) / svD(svD.size() - 1) : std::numeric_limits<double>::infinity();
+
+	QP_constraint qp = genConstraint(dimension, numConstraint);
+	Eigen::JacobiSVD<Eigen::MatrixXd> svdA(qp.a);
+	Eigen::VectorXd svA = svdA.singularValues();
+	double condA = (svA.size() > 0 && svA(svA.size() - 1) > 1e-300)
+	    ? svA(0) / svA(svA.size() - 1) : std::numeric_limits<double>::infinity();
+
+	std::cout << "[MIN_ALTITUDE_DIAG] conditioning check -- segT=" << segT
+	          << " ineqSampleDt=" << ineqSampleDt
+	          << " raw basis magnitude ratio (t^" << (polyOrder - 1) << " at segT vs at dt)="
+	          << basisRatio
+	          << " cond(objective D)=" << condD
+	          << " cond(equality A)=" << condA
+	          << std::endl;
+}
+
 Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 {
     //Cut the object into 3 vectors
@@ -553,6 +597,11 @@ Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 		// somewhere in the MIDDLE of the segment, which no amount of
 		// releasing time near the target can fix" -- see diagnoseMinAltitudeShape().
 		diagnoseMinAltitudeShape(minDeriv, D, numConstraint);
+		// Checks whether the mid-segment overshoot diagnoseMinAltitudeShape()
+		// shows is actually a numerical-conditioning artifact of basis()'s
+		// un-normalized, raw-seconds time powers (t^0..t^9), rather than a
+		// genuine kinematic/DOF infeasibility -- see logSolveConditioning().
+		logSolveConditioning(2, D, numConstraint);
 	}
 	// Snapshot copy: any detached, still-running thread from the timeout branch
 	// above only ever writes its own timed-out dimension's column, and that
