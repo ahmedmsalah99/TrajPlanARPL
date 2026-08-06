@@ -566,33 +566,6 @@ void TrajBase::applyMinAltitude(){
 		return;
 	}
 
-	// Release gate: lift the floor entirely for this cycle once the anchor
-	// (vertices[0], the segment's start -- known now, no need to solve
-	// anything) is already within minAltitudeReleaseDist of the target
-	// horizontally. This replaced a time-before-THIS-segment's-own-end
-	// release: that clock restarted every replan, so it could demand the
-	// anchor climb back above the floor even when it was already correctly
-	// below it, descending, per an earlier plan's own (now-superseded)
-	// release phase -- confirmed in the field via [MIN_ALTITUDE_DIAG].
-	// Horizontal distance is a property of where the vehicle actually is, so
-	// it stays consistent across replans instead of resetting each cycle.
-	if(minAltitudeReleaseDist > 0.0 && vertices.size() >= 2){
-		Eigen::VectorXd anchorPos, targetPos;
-		if(vertices[0].getPos(&anchorPos) == 1 && vertices.back().getPos(&targetPos) == 1
-		   && anchorPos.rows() > 1 && targetPos.rows() > 1){
-			double dx = anchorPos(0) - targetPos(0);
-			double dy = anchorPos(1) - targetPos(1);
-			double horizDist = sqrt(dx*dx + dy*dy);
-			if(horizDist <= minAltitudeReleaseDist){
-				std::cout << "[MIN_ALTITUDE] SKIPPED: anchor is " << horizDist
-				          << "m horizontally from the target (<= release distance "
-				          << minAltitudeReleaseDist << "m) -- floor lifted for this cycle"
-				          << std::endl;
-				return;
-			}
-		}
-	}
-
 	// Effectively unbounded on the unconstrained dimensions/direction; the QP
 	// needs a finite box (d <= Cx <= f), so use a bound far outside any
 	// physically reachable position instead of true infinity. Keep this modest
@@ -607,25 +580,19 @@ void TrajBase::applyMinAltitude(){
 	// UPPER bound on z (z <= -minAltitude). Only z (index 2) is constrained;
 	// x, y, yaw are left free. Each vertex i (i>=1) anchors its constraint to
 	// the segment ending at it (segmentTimes[i-1]).
-	//
-	// spanFromStart (see the struct member comment) opens the sampling window
-	// just after the segment's START instant, not at it: that START instant
-	// is the PREVIOUS vertex's position, a separate hard EQUALITY constraint
-	// (e.g. the live start position from odom, or an intermediate waypoint)
-	// that may legitimately sit below the floor (a ground-level takeoff, a
-	// low perch/landing goal) -- constraining it too would make the QP
-	// infeasible on every solve. genInEqConstraint's window is also
-	// strict-less-than at the END instant, so both endpoints of every
-	// segment end up excluded, leaving just the interior constrained.
 	// Where the floor sits, in NED z (smaller = higher).
 	double floorZ = -minAltitude;
+	// The final vertex IS the target. Needed both for a target-relative floor
+	// (below) and, unconditionally, for the per-segment release logic further
+	// down -- so compute it once regardless of minAltitudeAboveTarget.
+	Eigen::VectorXd targetPos;
+	bool haveTargetPos = (vertices.back().getPos(&targetPos) == 1 && targetPos.rows() > 2);
 	if(minAltitudeAboveTarget > 0.0){
-		// Relative to the perch target rather than the world origin. The final
-		// vertex IS the target, so its height is known here even though it is
-		// only discovered at solve time (a visual target moves between plans,
-		// so no absolute figure could track it).
-		Eigen::VectorXd targetPos;
-		if(vertices.back().getPos(&targetPos) == 1 && targetPos.rows() > 2){
+		// Relative to the perch target rather than the world origin. A visual
+		// target moves between plans, so no absolute figure could track it --
+		// this is only discovered at solve time, but the final vertex's
+		// position is already known here.
+		if(haveTargetPos){
 			floorZ = targetPos(2) - minAltitudeAboveTarget;
 		}
 		else{
@@ -635,6 +602,90 @@ void TrajBase::applyMinAltitude(){
 	}
 
 	for(size_t i = 1; i < vertices.size(); i++){
+		double segT = segmentTimes[i-1];
+
+		// Per-segment, plan-relative release. This used to be a single
+		// per-cycle yes/no gate checked against the CURRENT anchor position:
+		// if the vehicle started this cycle more than minAltitudeReleaseDist
+		// away horizontally, the floor was applied across the WHOLE segment,
+		// full stop -- with no relaxation as the segment's own plan carries
+		// it closer to the target over time. Since genInEqConstraint only
+		// ever leaves a single ~ineqSampleDt gap unconstrained right before
+		// the segment's end (see its endOffset handling), that meant the
+		// ENTIRE required descent below the floor (e.g. 0.4m, in the field
+		// case that motivated this) had to happen inside that one tiny
+		// window -- confirmed via [MIN_ALTITUDE_DIAG]: z failed EVERY single
+		// retry, regardless of added time or sample rows, because it isn't a
+		// tightness problem, it's a shape the solver can never produce.
+		//
+		// Instead, use this segment's own plan -- a straight-line, constant-
+		// rate interpolation between its start and end waypoints, the best
+		// estimate available before solving -- to find WHEN along it the
+		// horizontal distance to the target first drops to
+		// minAltitudeReleaseDist, and only constrain the portion of the
+		// segment BEFORE that point. The floor then relaxes gradually as the
+		// plan approaches, instead of all at once at the very end.
+		double endOffsetForSeg = 0.0; // 0 == floor applies right up to the segment end
+		bool skipSeg = false;
+		if(minAltitudeReleaseDist > 0.0 && haveTargetPos && segT > 1e-9){
+			Eigen::VectorXd startPos, endPos;
+			bool haveStart = (vertices[i-1].getPos(&startPos) == 1 && startPos.rows() > 1);
+			bool haveEnd = (vertices[i].getPos(&endPos) == 1 && endPos.rows() > 1);
+			if(haveStart && haveEnd){
+				double sx = startPos(0) - targetPos(0), sy = startPos(1) - targetPos(1);
+				double startDist = sqrt(sx*sx + sy*sy);
+				if(startDist <= minAltitudeReleaseDist){
+					// Already within release distance at the segment's own
+					// start -- lift the floor for this whole segment.
+					skipSeg = true;
+					std::cout << "[MIN_ALTITUDE] segment " << i << " SKIPPED: starts "
+					          << startDist << "m horizontally from the target (<= release "
+					          << minAltitudeReleaseDist << "m)" << std::endl;
+				}
+				else{
+					double ex = endPos(0) - targetPos(0), ey = endPos(1) - targetPos(1);
+					// Horizontal distance-to-target along the straight-line plan,
+					// as a function of segment-local time t in [0,segT]:
+					// pos(t) = start + (end-start)*t/segT. dist(t)^2 is a
+					// quadratic in t -- solve for where it equals
+					// minAltitudeReleaseDist^2.
+					double dx = (ex - sx) / segT, dy = (ey - sy) / segT; // rate vector
+					double a = dx*dx + dy*dy;
+					double b = 2.0*(sx*dx + sy*dy);
+					double c = sx*sx + sy*sy - minAltitudeReleaseDist*minAltitudeReleaseDist;
+					double tCross = -1.0;
+					if(a > 1e-9){
+						double disc = b*b - 4.0*a*c;
+						if(disc >= 0.0){
+							double sq = sqrt(disc);
+							double t1 = (-b - sq) / (2.0*a);
+							double t2 = (-b + sq) / (2.0*a);
+							// First entry into the release radius, moving forward in time.
+							double tEnter = std::min(t1, t2);
+							if(tEnter > 0.0 && tEnter <= segT){
+								tCross = tEnter;
+							}
+						}
+					}
+					if(tCross >= 0.0){
+						endOffsetForSeg = segT - tCross;
+						std::cout << "[MIN_ALTITUDE] segment " << i << ": floor applies for the first "
+						          << tCross << "s (until ~" << minAltitudeReleaseDist
+						          << "m horizontally from the target), released for the remaining "
+						          << endOffsetForSeg << "s of " << segT << "s total" << std::endl;
+					}
+					else{
+						std::cout << "[MIN_ALTITUDE] segment " << i << ": never gets within "
+						          << minAltitudeReleaseDist << "m horizontally within this segment's own plan -- "
+						          << "floor applied across the whole " << segT << "s" << std::endl;
+					}
+				}
+			}
+		}
+		if(skipSeg){
+			continue;
+		}
+
 		waypoint_ineq_const c;
 		c.derivOrder = 0; // position
 		// spanFromStart, not a frozen timeOffset computed from segmentTimes
@@ -646,11 +697,15 @@ void TrajBase::applyMinAltitude(){
 		// covering the segment's start instead of actually covering more of
 		// it. spanFromStart re-derives the window from the CURRENT segment
 		// time every time it's sampled, so growth genuinely extends coverage.
+		//
+		// endOffset above releases the tail once the plan's own straight-line
+		// estimate says the segment is within minAltitudeReleaseDist of the
+		// target -- genInEqConstraint's window is also strict-less-than at
+		// the very start instant (the previous vertex's own equality
+		// constraint, which may legitimately sit below the floor), so both
+		// endpoints of every segment end up excluded either way.
 		c.spanFromStart = true;
-		// The release gate above already decided the floor applies at all
-		// this cycle -- once it does, it's enforced across the whole segment,
-		// no per-sample time cut at the end.
-		c.endOffset = 0.0;
+		c.endOffset = endOffsetForSeg;
 		c.lower = Eigen::Vector4d::Constant(-kUnbounded);
 		c.upper = Eigen::Vector4d::Constant(kUnbounded);
 		c.upper(2) = floorZ;
@@ -660,8 +715,8 @@ void TrajBase::applyMinAltitude(){
 	}
 	std::cout << "[MIN_ALTITUDE] applied: z <= " << floorZ
 	          << (minAltitudeAboveTarget > 0.0 ? " (target-relative)" : " (absolute)")
-	          << ", released within " << minAltitudeReleaseDist << "m of the target horizontally, across "
-	          << (vertices.size() - 1) << " segment(s)" << std::endl;
+	          << " across " << (vertices.size() - 1) << " segment(s), release distance "
+	          << minAltitudeReleaseDist << "m" << std::endl;
 	// Diagnostic only -- see the member comment.
 	lastMinAltitudeFloorZ = floorZ;
 }
