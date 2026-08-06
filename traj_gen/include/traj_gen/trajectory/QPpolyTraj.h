@@ -50,6 +50,12 @@ protected:
 	 // shape issue that no amount of windowing can fix.
 	 void diagnoseMinAltitudeShape(int minDeriv, const Eigen::MatrixXd& D, int numConstraint);
 	 // Diagnostic only -- see the definition's comment. Called from MTsolve()
+	 // when x (dimension=0) or y (dimension=1) fails while HORIZ_LIMIT is
+	 // enabled -- the same shape-without-constraint check as
+	 // diagnoseMinAltitudeShape(), but for applyHorizontalLimits() instead of
+	 // applyMinAltitude().
+	 void diagnoseHorizontalLimitShape(int minDeriv, const Eigen::MatrixXd& D, int numConstraint, int dimension);
+	 // Diagnostic only -- see the definition's comment. Called from MTsolve()
 	 // alongside diagnoseMinAltitudeShape() when z fails, to check whether
 	 // basis()'s un-normalized (raw-seconds) time powers have made the
 	 // objective/equality matrices this solve actually used numerically
