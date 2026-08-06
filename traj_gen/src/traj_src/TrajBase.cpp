@@ -539,11 +539,11 @@ void TrajBase::setFovTrustRegion(double pos, double acc, double yaw){
 	fovTrustYaw = yaw;
 }
 
-void TrajBase::setMinAltitude(bool enable, double minAlt, double aboveTarget, double releaseS){
+void TrajBase::setMinAltitude(bool enable, double minAlt, double aboveTarget, double releaseDist){
 	minAltitudeEnabled = enable;
 	minAltitude = minAlt;
 	minAltitudeAboveTarget = aboveTarget;
-	minAltitudeReleaseS = releaseS;
+	minAltitudeReleaseDist = releaseDist;
 }
 
 void TrajBase::applyMinAltitude(){
@@ -564,6 +564,33 @@ void TrajBase::applyMinAltitude(){
 		          << ") -- call after segment times are set for this plan"
 		          << std::endl;
 		return;
+	}
+
+	// Release gate: lift the floor entirely for this cycle once the anchor
+	// (vertices[0], the segment's start -- known now, no need to solve
+	// anything) is already within minAltitudeReleaseDist of the target
+	// horizontally. This replaced a time-before-THIS-segment's-own-end
+	// release: that clock restarted every replan, so it could demand the
+	// anchor climb back above the floor even when it was already correctly
+	// below it, descending, per an earlier plan's own (now-superseded)
+	// release phase -- confirmed in the field via [MIN_ALTITUDE_DIAG].
+	// Horizontal distance is a property of where the vehicle actually is, so
+	// it stays consistent across replans instead of resetting each cycle.
+	if(minAltitudeReleaseDist > 0.0 && vertices.size() >= 2){
+		Eigen::VectorXd anchorPos, targetPos;
+		if(vertices[0].getPos(&anchorPos) == 1 && vertices.back().getPos(&targetPos) == 1
+		   && anchorPos.rows() > 1 && targetPos.rows() > 1){
+			double dx = anchorPos(0) - targetPos(0);
+			double dy = anchorPos(1) - targetPos(1);
+			double horizDist = sqrt(dx*dx + dy*dy);
+			if(horizDist <= minAltitudeReleaseDist){
+				std::cout << "[MIN_ALTITUDE] SKIPPED: anchor is " << horizDist
+				          << "m horizontally from the target (<= release distance "
+				          << minAltitudeReleaseDist << "m) -- floor lifted for this cycle"
+				          << std::endl;
+				return;
+			}
+		}
 	}
 
 	// Effectively unbounded on the unconstrained dimensions/direction; the QP
@@ -613,10 +640,10 @@ void TrajBase::applyMinAltitude(){
 		waypoint_ineq_const c;
 		c.derivOrder = 0; // position
 		c.timeOffset = std::max(0.0, segmentTimes[i-1] - ineqSampleDt);
-		// Lift the floor for the last stretch before arrival, on the final
-		// segment only -- otherwise it would block the very descent onto the
-		// target that it exists to protect.
-		c.endOffset = (i == vertices.size() - 1) ? minAltitudeReleaseS : 0.0;
+		// The release gate above already decided the floor applies at all
+		// this cycle -- once it does, it's enforced across the whole segment,
+		// no per-sample time cut at the end.
+		c.endOffset = 0.0;
 		c.lower = Eigen::Vector4d::Constant(-kUnbounded);
 		c.upper = Eigen::Vector4d::Constant(kUnbounded);
 		c.upper(2) = floorZ;
@@ -626,7 +653,7 @@ void TrajBase::applyMinAltitude(){
 	}
 	std::cout << "[MIN_ALTITUDE] applied: z <= " << floorZ
 	          << (minAltitudeAboveTarget > 0.0 ? " (target-relative)" : " (absolute)")
-	          << ", released for the final " << minAltitudeReleaseS << "s, across "
+	          << ", released within " << minAltitudeReleaseDist << "m of the target horizontally, across "
 	          << (vertices.size() - 1) << " segment(s)" << std::endl;
 	// Diagnostic only -- see the member comment.
 	lastMinAltitudeFloorZ = floorZ;

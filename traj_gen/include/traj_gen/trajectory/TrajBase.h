@@ -71,7 +71,16 @@ protected:
 	bool minAltitudeEnabled = false;
 	double minAltitude = 0.0;         // metres above the world origin
 	double minAltitudeAboveTarget = 0.0; // if > 0, floor is this far above the final waypoint instead
-	double minAltitudeReleaseS = 0.0;    // seconds before arrival where the floor is lifted
+	// Horizontal (x,y) distance from the target below which the floor is lifted
+	// entirely for this replan cycle, rather than a fixed time-before-arrival.
+	// Distance is a property of where the vehicle actually is, so it stays
+	// consistent across replans; a time-before-THIS-segment's-own-end resets
+	// every cycle and can contradict the anchor's real state -- confirmed in
+	// the field via [MIN_ALTITUDE_DIAG]: the anchor was found already below
+	// the floor (descending, as an earlier plan's own release phase intended)
+	// while a freshly built segment's time-based release still demanded it
+	// climb back above the floor for its own now-restarted window.
+	double minAltitudeReleaseDist = 0.0;
 	// The floor (NED z) applyMinAltitude() actually computed and applied on its
 	// most recent call -- cached purely so MTsolve() can log it alongside the
 	// anchor's real z/vz when dim=2 (z) fails to solve, without recomputing the
@@ -189,11 +198,14 @@ public:
 	//  the FINAL waypoint (the perch target). That is usually what is wanted --
 	//  "stay above the pad" -- and it tracks a target whose height is only known
 	//  at solve time, which an absolute figure cannot.
-	//releaseS: seconds before arrival where the floor is lifted, so the final
-	//  approach can descend onto the target. Without it the floor would also
-	//  block the descent it exists to protect. Mirrors perch_window.
+	//releaseDist: horizontal (x,y) distance from the target below which the
+	//  floor is lifted entirely for that replan cycle, so the final approach
+	//  can descend onto the target. Without it the floor would also block the
+	//  descent it exists to protect. Distance-based (not time-based) so the
+	//  release decision depends on where the vehicle actually is, not on a
+	//  clock that restarts every time a new segment is built.
 	void setMinAltitude(bool enable, double minAlt, double aboveTarget = 0.0,
-	                    double releaseS = 0.0);
+	                    double releaseDist = 0.0);
 	//Push the minimum-altitude inequality onto every vertex (1..end) of the
 	//CURRENT vertex list. Call after segmentTimes is set for this plan (e.g.
 	//after autogenTimeSegment(), or after the replan-rebuilt segmentTimes) --
