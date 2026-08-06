@@ -348,7 +348,24 @@ bool TrajBase::isMinAltitudeZBlocking(){
 			return false; // some other dimension is also failing -- not purely a floor conflict
 		}
 	}
-	return true;
+	// Two different failure shapes both show up as "only z fails," and they
+	// need OPPOSITE responses. If the anchor already satisfies the floor,
+	// this is the overshoot case (fixed terminal velocity forces a swing
+	// through the floor mid-flight) -- shrinking helps, confirmed in the
+	// field. If the anchor is already BELOW the floor, the vehicle
+	// genuinely needs real time to climb up to it -- shrinking here only
+	// makes an already-insufficient time budget worse. Confirmed in the
+	// field: a cycle with anchor z=-1.658 (well below floor=-8.26935) kept
+	// failing while segment time was shrunk from 4.86s down to 4.06s,
+	// exactly the wrong direction for a genuine climb-time shortage.
+	if(vertices.empty()){
+		return false;
+	}
+	Eigen::VectorXd anchorPos;
+	if(vertices[0].getPos(&anchorPos) != 1 || anchorPos.rows() <= 2){
+		return false;
+	}
+	return anchorPos(2) <= lastMinAltitudeFloorZ;
 }
 
 void TrajBase::overideSolve(){
