@@ -356,6 +356,109 @@ void  thread_QP(int dimension, Eigen::MatrixXd Qobj, int coeffNum, QP_constraint
 	done->store(true);
 }
 
+// Diagnostic only, no behavior change to the actual solve -- called from
+// MTsolve() right after z (dim=2) fails while MIN_ALTITUDE is enabled.
+//
+// The per-segment release (see applyMinAltitude()) only widens/narrows the
+// window near the TARGET end of the segment. If z keeps failing even after
+// that window was genuinely relaxed (confirmed via row-count logs dropping),
+// the remaining cause could be one of two very different things:
+//   (a) the required descent still doesn't fit in the released window --
+//       tighten/rework the release further, or
+//   (b) with only a handful of free coefficients left once the boundary
+//       conditions (odom start: pos/vel/accel/jerk/snap; perch-conditioned
+//       target: pos/vel/accel) are pinned, the polynomial's NATURAL shape
+//       -- driven purely by those boundary values and the min-snap-style
+//       cost, nothing to do with the target -- may dip through the floor
+//       somewhere in the MIDDLE of the segment. No amount of releasing time
+//       near the target can fix that.
+// This re-solves z with ONLY the MIN_ALTITUDE inequality rows removed (every
+// other constraint on z, e.g. the perch accel band, stays exactly as in the
+// real solve) and samples the resulting z(t) across the whole segment
+// against the floor, to show directly which case this is.
+void QPpolyTraj::diagnoseMinAltitudeShape(int minDeriv, const Eigen::MatrixXd& D, int numConstraint){
+	const int dimension = 2; // z
+	int coeffNum = (vertices.size() - 1) * polyOrder;
+
+	// MIN_ALTITUDE's own rows are uniquely identified by how applyMinAltitude()
+	// builds them: derivOrder==0 (position), spanFromStart==true, InEqDim(2)==1.
+	// Strip just those from a scratch copy of vertices, leaving every other
+	// constraint (e.g. calcPerchCond's accel band, also on z) untouched.
+	std::vector<waypoint> savedVertices = vertices;
+	for(size_t i = 0; i < vertices.size(); i++){
+		std::vector<waypoint_ineq_const> kept;
+		for(size_t j = 0; j < vertices[i].ineq_constraint.size(); j++){
+			const waypoint_ineq_const& ic = vertices[i].ineq_constraint[j];
+			bool isMinAltitude = (ic.derivOrder == 0 && ic.spanFromStart && ic.InEqDim(2) == 1);
+			if(!isMinAltitude){
+				kept.push_back(ic);
+			}
+		}
+		vertices[i].ineq_constraint = kept;
+	}
+
+	QP_constraint qp = genConstraint(dimension, numConstraint);
+	QP_ineq_const ineq_qp = genInEqConstraint(dimension);
+	vertices = savedVertices; // restore immediately, before anything else can observe it
+
+	Eigen::VectorXd sol = Eigen::VectorXd::Zero(coeffNum);
+	Eigen::VectorXd g0 = Eigen::VectorXd::Zero(coeffNum);
+	Eigen::SparseMatrix<double, Eigen::RowMajor> Obj = D.sparseView();
+	Eigen::MatrixXd A = qp.a, b = qp.b;
+	Eigen::SparseMatrix<double, Eigen::RowMajor> AooQP = A.sparseView();
+	Eigen::SparseMatrix<double, Eigen::RowMajor> C = ineq_qp.C.sparseView();
+	bool ok = false;
+	try {
+		ok = ooqpei::OoqpEigenInterface::solve(Obj, g0, AooQP, b, C, ineq_qp.d, ineq_qp.f, sol, false);
+	} catch (const std::exception& e) {
+		std::cout << "[MIN_ALTITUDE_DIAG] shape-without-floor solve threw: " << e.what()
+		          << " -- skipping" << std::endl;
+		return;
+	} catch (...) {
+		std::cout << "[MIN_ALTITUDE_DIAG] shape-without-floor solve threw a non-standard "
+		          << "exception -- skipping" << std::endl;
+		return;
+	}
+	if(!ok){
+		std::cout << "[MIN_ALTITUDE_DIAG] z still fails even WITHOUT the min-altitude floor -- "
+		          << "the floor is not the (sole) blocker here" << std::endl;
+		return;
+	}
+
+	double T = 0.0;
+	for(size_t s = 0; s < segmentTimes.size(); s++){ T += segmentTimes[s]; }
+	const int kSamples = 20;
+	int numSeg = segmentTimes.size();
+	bool anyViolation = false;
+	std::cout << "[MIN_ALTITUDE_DIAG] shape without floor (floor=" << lastMinAltitudeFloorZ << "):";
+	for(int k = 0; k <= kSamples; k++){
+		double t = T * (double)k / (double)kSamples;
+		// Locate segment/local time exactly as evalTraj() does.
+		double localT = t;
+		int seg = 0;
+		while(seg < numSeg - 1 && segmentTimes[seg] < localT){
+			localT -= segmentTimes[seg];
+			seg += 1;
+		}
+		if(localT > segmentTimes[seg]){ localT = segmentTimes[seg]; }
+		Eigen::VectorXd power = basis(localT, 0);
+		double z = 0.0;
+		for(int p = 0; p < polyOrder; p++){
+			z += power(p) * sol(seg*polyOrder + p);
+		}
+		bool violates = (z > lastMinAltitudeFloorZ);
+		anyViolation = anyViolation || violates;
+		std::cout << " [t=" << t << " z=" << z << (violates ? " VIOLATES" : "") << "]";
+	}
+	std::cout << std::endl;
+	if(!anyViolation){
+		std::cout << "[MIN_ALTITUDE_DIAG] shape without floor never actually violates it -- "
+		          << "the real solve's failure is likely an interaction with another "
+		          << "sampled constraint on z (e.g. the perch accel band), not min-altitude "
+		          << "itself" << std::endl;
+	}
+}
+
 Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 {
     //Cut the object into 3 vectors
@@ -444,6 +547,12 @@ Eigen::MatrixXd QPpolyTraj::MTsolve(int minDeriv)
 		          << " vz=" << avz << " floor=" << lastMinAltitudeFloorZ
 		          << " (anchor is " << (az <= lastMinAltitudeFloorZ ? "above/at" : "BELOW")
 		          << " the floor)" << std::endl;
+		// Distinguishes "the required descent genuinely can't fit in the
+		// released window near the target" from "the natural, unconstrained
+		// shape (given the boundary conditions alone) dips through the floor
+		// somewhere in the MIDDLE of the segment, which no amount of
+		// releasing time near the target can fix" -- see diagnoseMinAltitudeShape().
+		diagnoseMinAltitudeShape(minDeriv, D, numConstraint);
 	}
 	// Snapshot copy: any detached, still-running thread from the timeout branch
 	// above only ever writes its own timed-out dimension's column, and that

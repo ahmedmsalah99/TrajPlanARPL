@@ -44,6 +44,11 @@ protected:
 	 // left the pre-allocated A/b rows for those derivatives never written --
 	 // trailing all-zero rows that rank-deficiency the assembled equality matrix.
 	 int countEqConstraintRows();
+	 // Diagnostic only -- see the definition's comment. Called from MTsolve()
+	 // when z fails while MIN_ALTITUDE is enabled, to distinguish a genuinely
+	 // too-tight release window from a boundary-condition/degrees-of-freedom
+	 // shape issue that no amount of windowing can fix.
+	 void diagnoseMinAltitudeShape(int minDeriv, const Eigen::MatrixXd& D, int numConstraint);
 
 public:
     bool fast = false; //Determines if we fast solve. Fast solve is faster
