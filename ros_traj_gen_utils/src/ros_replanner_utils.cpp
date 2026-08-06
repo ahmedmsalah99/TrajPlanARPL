@@ -463,11 +463,9 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		// is exact and low-noise, so it stays the default source of truth every
 		// cycle, unchanged from before reallocateTime existed. Only when it's
 		// about to go infeasible do we ask autogenTimeSegment() for a fresh,
-		// distance-based estimate from the anchor's ACTUAL current position --
-		// and even then only take the max with the countdown, topping up a
-		// failing budget rather than replacing a healthy one. (An earlier
-		// version of this called autogenTimeSegment() unconditionally, every
-		// cycle: near the target its output is highly sensitive to small
+		// distance-based estimate from the anchor's ACTUAL current position.
+		// (An earlier version called autogenTimeSegment() unconditionally,
+		// every cycle: near the target its output is highly sensitive to small
 		// distance changes -- several seconds of allocated time per metre at
 		// this v_max/a_max -- so ordinary tracking/vision noise made
 		// consecutive cycles disagree wildly about how much time was left, and
@@ -481,16 +479,41 @@ bool ros_replan_utils::replan(int degreeOpt, double t_elap, double t_off, Eigen:
 		// how little real distance is left, which throttles the commanded
 		// approach velocity every cycle it fires: distance keeps shrinking but
 		// the time budget keeps resetting to the same floor, so the vehicle
-		// gets asymptotically slower and never quite finishes -- the target is
-		// perpetually "one floor's worth of time" away instead of ever being
-		// the thing actually commanded now. If the honest max() below still
-		// comes out below minSegTime, that's handled after the solve succeeds
-		// -- see committedFinalApproach below -- by committing to this
-		// trajectory rather than distorting its duration.
+		// gets asymptotically slower and never quite finishes.
 		std::vector<double> countdown = trajectory->segmentTimes;
 		trajectory->autogenTimeSegment();
+		// Growing (fresh >= countdown) always wins outright -- that's the
+		// original rescue case this mechanism exists for: the countdown is
+		// genuinely insufficient, top it up.
+		//
+		// Shrinking (fresh < countdown) only wins when fresh is substantially
+		// smaller -- below kShrinkFraction of the countdown, not just any
+		// amount less. Confirmed missing in the field: at 4cm from the target,
+		// autogenTimeSegment() honestly computed 0.34s remaining, but the
+		// countdown (stale -- it had only been decremented by wall-clock time
+		// since the vehicle got this close, never re-derived from how close it
+		// actually was) still stood at 0.72s, and max() always kept the larger
+		// number. The plan kept cruising on a schedule more than 2x longer
+		// than the real remaining distance justified, well past when it had
+		// already essentially arrived -- the "stuck near the target" plateau.
+		// A plain min() would fix that instantly, but reintroduces exactly the
+		// noise-whiplash the max()-only version above was written to avoid: a
+		// momentary too-small reading (tracking jitter, a target position
+		// update) would immediately cut the schedule short too. Requiring
+		// fresh to undercut the countdown by a wide margin is what tells
+		// genuine "we're already basically there" apart from a one-cycle blip
+		// -- the field case (0.34s vs 0.72s, less than half) clears it easily;
+		// ordinary jitter narrowing the gap by a few percent doesn't.
+		const double kShrinkFraction = 0.5;
 		for(size_t i = 0; i < trajectory->segmentTimes.size() && i < countdown.size(); i++){
-			trajectory->segmentTimes[i] = std::max(countdown[i], trajectory->segmentTimes[i]);
+			double fresh = trajectory->segmentTimes[i];
+			double stale = countdown[i];
+			if(fresh >= stale || fresh < stale * kShrinkFraction){
+				trajectory->segmentTimes[i] = fresh;
+			}
+			else{
+				trajectory->segmentTimes[i] = stale;
+			}
 		}
 	}
 	trajectory->applyMinAltitude();
