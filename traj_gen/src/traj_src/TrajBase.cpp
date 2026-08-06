@@ -78,35 +78,6 @@ float TrajBase::autogenTimeSegment()
 		double t = 1.1* distance / v_max * 2 *
 				   (1.0 + magic_fabian_constant * v_max / a_max *
 							  exp(-distance / v_max * 2));
-		// Velocity-aware floor. The formula above is a rest-to-rest estimate --
-		// it only looks at distance, so as distance shrinks it shrinks toward
-		// 0 regardless of how fast the vehicle is actually moving at the START
-		// of this segment. That's fine when the segment genuinely starts at
-		// rest (the very first initialPlan() call), but replan() calls this
-		// from a moving anchor, and the target end of a perch segment is
-		// pinned near-zero velocity by calcPerchCond -- so the real minimum
-		// time is bounded below by how long it physically takes to shed the
-		// START velocity at this vehicle's own a_max, independent of distance.
-		// Confirmed missing in the field: a replan() cycle whose anchor still
-		// carried real velocity got a distance-based estimate far below what
-		// the QP could actually solve for, exhausting the retry loop's search
-		// for extra time (up to 10 retries, 1.5+ real seconds) before either
-		// succeeding late or giving up -- this floor means the initial
-		// estimate no longer has to recover via retries in the first place.
-		// Only vertices[i] (this segment's START) is checked -- vertices[i+1]
-		// (the END) is either the next waypoint in a multi-waypoint path, not
-		// itself decelerating to rest, or (for the final perch segment) a
-		// freshly-constructed position-only waypoint whose velocity hasn't
-		// been set yet at this point in replan() (calcPerchCond runs later),
-		// so treating it as ~0 here is the best available approximation and
-		// matches what calcPerchCond ends up pinning for the near-flat targets
-		// this has been tested against.
-		Eigen::VectorXd startVel;
-		if(vertices[i].getVelo(&startVel) == 1 && startVel.rows() >= 3){
-			double speed = startVel.head(3).norm();
-			double t_decel = speed / a_max;
-			if(t_decel > t){ t = t_decel; }
-		}
    if(t<yaw_time){
 			t = yaw_time;
 		}
