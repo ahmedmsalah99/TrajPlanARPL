@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>pad_motion_gazebo</name>
+  <version>0.0.0</version>
+  <description>gz-sim Model plugin that reads a model's actual Gazebo pose every tick and republishes it as ground-truth px4_msgs/VehicleOdometry -- a passive telemetry bridge, not a motion generator. Used to feed the SPA predictor (spa_predictor package) a known/simulated pad signal, whatever separately drives the pad's motion in Gazebo.</description>
+
+  <maintainer email="jeff@todo.todo">jeff</maintainer>
+  <license>GPLv3</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>px4_msgs</depend>
+  <!-- gz-simN is version-dependent (Harmonic=8, Fortress=7) and resolved by
+       CMakeLists.txt at configure time; not declared here as a single
+       version-pinned key. Install ros-gz / gz-sim for your ROS distro per
+       https://gazebosim.org/docs, e.g. `ros-jazzy-ros-gz` (Harmonic) or
+       `ros-humble-ros-gz` (Fortress). -->
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
