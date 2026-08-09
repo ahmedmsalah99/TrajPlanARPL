@@ -1,4 +1,4 @@
-#include <ros_traj_gen_utils/spa_predictor.h>
+#include <spa_predictor/spa_predictor.h>
 #include <cmath>
 #include <algorithm>
 #include <limits>

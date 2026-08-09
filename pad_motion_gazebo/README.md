@@ -4,8 +4,8 @@ A gz-sim (Harmonic/Fortress) `Model` plugin, `PadMotionPlugin`, that
 kinematically animates a perch pad's heave motion and publishes its
 GROUND-TRUTH pose/velocity as `px4_msgs/VehicleOdometry` -- the same message
 type the drone's own odometry already uses elsewhere in this workspace, so
-consumers (starting with `ros_traj_gen_utils`' `spa_heave_node`) need no new
-parsing code.
+consumers (starting with the `spa_predictor` package's `spa_heave_node`)
+need no new parsing code.
 
 Scope: **heave only**. The pad's attitude never changes; roll/pitch motion
 is a planned follow-up (see `PadMotionPlugin.cc`'s class comment for exactly
@@ -21,14 +21,14 @@ vision-derived heave estimate.
 ## Build & run
 
 ```bash
-colcon build --packages-select pad_motion_gazebo ros_traj_gen_utils
+colcon build --packages-select pad_motion_gazebo spa_predictor
 source install/setup.bash
 
 # terminal 1: gz-sim with the heaving pad
 ros2 launch pad_motion_gazebo pad_motion_sim.launch.py
 
 # terminal 2: the SPA heave predictor
-ros2 run ros_traj_gen_utils spa_heave_node
+ros2 run spa_predictor spa_heave_node
 
 # terminal 3: watch it converge
 ros2 topic echo /pad/spa/heave_prediction
@@ -44,7 +44,7 @@ ago start resolving against fresh measurements -- give it at least one full
 | Topic | Type | Direction | Notes |
 |---|---|---|---|
 | `/pad/fmu/out/vehicle_odometry` | `px4_msgs/VehicleOdometry` | published by `PadMotionPlugin` | GROUND TRUTH, not from a real vehicle; NED, position\[2\] carries heave, identity attitude |
-| `/pad/spa/heave_prediction` | `ros_traj_gen_utils/SpaPrediction` | published by `spa_heave_node` | predictions + self-assessment |
+| `/pad/spa/heave_prediction` | `spa_predictor/SpaPrediction` | published by `spa_heave_node` | predictions + self-assessment |
 
 ## Standalone world vs. drop-in model
 

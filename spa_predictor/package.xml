@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>spa_predictor</name>
+  <version>0.0.0</version>
+  <description>Signal Prediction Algorithm (SPA) -- a scalar-signal predictor (DFT mode detection + steady-state Kalman oscillator bank + self-assessment) per Abujoub, McPhee &amp; Irani (2020), Sec. 3.1. Standalone from ros_traj_gen_utils so it stays reusable/testable independent of the planner. spa_heave_node wraps it for the pad heave use case.</description>
+
+  <maintainer email="jeff@todo.todo">jeff</maintainer>
+  <license>GPLv3</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>px4_msgs</depend>
+
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

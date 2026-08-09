@@ -1,5 +1,5 @@
-#ifndef _ros_spa_predictor_h
-#define _ros_spa_predictor_h
+#ifndef _spa_predictor_h
+#define _spa_predictor_h
 #include <Eigen/Eigen>
 #include <vector>
 #include <deque>

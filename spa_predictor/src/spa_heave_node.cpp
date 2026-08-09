@@ -1,17 +1,19 @@
 // Wraps SpaPredictor around the pad's ground-truth heave (z), as published
 // by pad_motion_gazebo's PadMotionPlugin on px4_msgs/VehicleOdometry, and
-// publishes predictions + self-assessment as ros_traj_gen_utils/SpaPrediction.
+// publishes predictions + self-assessment as spa_predictor/SpaPrediction.
 //
-// Deliberately standalone -- not wired into traj_manager.cpp/traj_exe yet.
-// This is Phase 2 of the SPA rollout (see the planning discussion this node
-// came out of): validate the predictor's mode detection and accuracy-vs-
-// horizon (sigma) against a known/simulated signal before anything consumes
-// its output for real. Point input_topic at a real (vision-derived) heave
+// Deliberately standalone -- not wired into ros_traj_gen_utils' traj_exe
+// yet, and deliberately in its own package (not ros_traj_gen_utils) so the
+// predictor stays reusable/testable independent of the planner. This is
+// Phase 2 of the SPA rollout (see the planning discussion this node came
+// out of): validate the predictor's mode detection and accuracy-vs-horizon
+// (sigma) against a known/simulated signal before anything consumes its
+// output for real. Point input_topic at a real (vision-derived) heave
 // source later without changing this node's logic.
 #include <rclcpp/rclcpp.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
-#include <ros_traj_gen_utils/msg/spa_prediction.hpp>
-#include <ros_traj_gen_utils/spa_predictor.h>
+#include <spa_predictor/msg/spa_prediction.hpp>
+#include <spa_predictor/spa_predictor.h>
 #include <memory>
 #include <vector>
 #include <string>
@@ -69,7 +71,7 @@ public:
 			std::bind(&SpaHeaveNode::onOdom, this, std::placeholders::_1));
 
 		std::string output_topic = get_parameter("output_topic").as_string();
-		pub_ = create_publisher<ros_traj_gen_utils::msg::SpaPrediction>(output_topic, 10);
+		pub_ = create_publisher<spa_predictor::msg::SpaPrediction>(output_topic, 10);
 
 		double rate = get_parameter("publish_rate_hz").as_double();
 		timer_ = create_wall_timer(
@@ -99,7 +101,7 @@ private:
 		if(!predictor_->initialized()){
 			return;
 		}
-		ros_traj_gen_utils::msg::SpaPrediction msg;
+		spa_predictor::msg::SpaPrediction msg;
 		msg.header.stamp = now();
 		msg.header.frame_id = "odom"; // NED, matches this repo's odom_frame convention
 		msg.initialized = true;
@@ -130,7 +132,7 @@ private:
 	std::unique_ptr<SpaPredictor> predictor_;
 	std::vector<double> horizons_;
 	rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr sub_;
-	rclcpp::Publisher<ros_traj_gen_utils::msg::SpaPrediction>::SharedPtr pub_;
+	rclcpp::Publisher<spa_predictor::msg::SpaPrediction>::SharedPtr pub_;
 	rclcpp::TimerBase::SharedPtr timer_;
 };
 
