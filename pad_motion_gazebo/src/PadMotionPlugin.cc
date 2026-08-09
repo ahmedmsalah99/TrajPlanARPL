@@ -1,10 +1,18 @@
-// PadMotionPlugin -- a gz-sim Model plugin that kinematically animates a
-// perch pad's heave motion (a configurable sum of sinusoids) and publishes
-// its GROUND-TRUTH pose/velocity as px4_msgs/VehicleOdometry, reusing the
-// exact message type this repo's drone odometry already flows through
-// (traj_manager.cpp, dummy_publisher.py) so any downstream consumer -- most
-// immediately ros_traj_gen_utils' spa_heave_node -- needs zero new parsing
-// code.
+// PadMotionPlugin -- a gz-sim Model plugin that reads a model's ACTUAL pose
+// from Gazebo every tick and republishes it as px4_msgs/VehicleOdometry
+// ground truth, the same message type/convention this repo's drone
+// odometry already flows through (traj_manager.cpp, dummy_publisher.py) --
+// so any downstream consumer (starting with spa_predictor's
+// spa_heave_node) needs zero new parsing code.
+//
+// Deliberately a passive telemetry bridge, not a motion generator: this
+// plugin does not drive, script, or otherwise decide how the pad moves --
+// whatever does that (physics, a joint controller, a separate driving
+// plugin, manual/GUI manipulation, ...) is a wholly separate concern, and
+// this plugin has no configuration of its own. Its only job is "read
+// Gazebo's ground truth for this model, publish it as if a real PX4 device
+// reported it" -- the same role PX4's own gz_bridge plays for the vehicle
+// itself.
 //
 // This targets gz-sim's Harmonic-era API (`gz::` namespace, GZ_ADD_PLUGIN).
 // Fortress (Ignition-branded) users need the `ignition::gazebo` namespace
@@ -13,24 +21,20 @@
 // written against the newer naming; port the namespace/macro names if
 // building against gz-sim7.
 //
-// Scope: HEAVE ONLY. The pad's attitude is left at whatever <pose> it was
-// given at spawn and never touched here -- roll/pitch motion is a planned
-// follow-up (see the SPA planning discussion this package came out of), not
-// yet implemented. Adding it means: (1) writing a rotating pose, not just a
-// Z offset, into the Pose component below; (2) publishing a non-identity
-// `q` in VehicleOdometry, which -- unlike position/velocity's simple axis
-// swap -- needs the SAME composed ENU<->NED / FLU<->FRD fixed quaternion
-// rotation PX4's own gz_bridge (px4-gazebo-bridge, gz_bridge.cpp) applies to
-// the real vehicle's attitude. Reuse that exact transform rather than
-// re-deriving it, so the pad's ground truth stays directly comparable to
-// the drone's own (identically-converted) odometry in this same simulated
-// world.
-//
-// Kinematic driving requires <static>true</static> on the pad model in SDF
-// -- this plugin overwrites the model's Pose component every PreUpdate,
-// which conflicts with letting the physics engine integrate it. This is the
-// standard pattern for scripted/keyframe motion in gz-sim (a static entity
-// whose pose a plugin still legally mutates via the ECM every tick).
+// Scope: position + linear velocity only. Linear velocity is obtained by
+// finite-differencing consecutive poses rather than reading a
+// LinearVelocity component, since that component is only populated by
+// systems explicitly asked to track it (gz-sim's EnableComponent) --
+// differencing works regardless of how (or whether) the model's actual
+// motion source cooperates with that, matching "just read whatever is
+// really happening" over depending on the mover's implementation.
+// Attitude is published as identity / zero angular velocity,
+// unconditionally -- NOT yet a passthrough of the model's actual
+// orientation. Doing that correctly needs the same composed ENU<->NED /
+// FLU<->FRD fixed quaternion rotation PX4's own gz_bridge applies to the
+// real vehicle's attitude (see gz_bridge.cpp) -- reuse that exact
+// transform, don't re-derive it, when roll/pitch predictors need real pad
+// attitude.
 #include <gz/plugin/Register.hh>
 #include <gz/sim/System.hh>
 #include <gz/sim/Model.hh>
@@ -42,21 +46,12 @@
 #include <px4_msgs/msg/vehicle_odometry.hpp>
 
 #include <chrono>
-#include <cmath>
 #include <iostream>
 #include <memory>
 #include <string>
-#include <vector>
 
 namespace pad_motion
 {
-
-struct HeaveComponent
-{
-	double amplitude = 0.0;  // m
-	double period_s = 1.0;   // s
-	double phase_rad = 0.0;  // rad, at sim time t=0
-};
 
 class PadMotionPlugin :
 	public gz::sim::System,
@@ -65,7 +60,7 @@ class PadMotionPlugin :
 {
 public:
 	void Configure(const gz::sim::Entity& entity,
-	               const std::shared_ptr<const sdf::Element>& sdf,
+	               const std::shared_ptr<const sdf::Element>& /*sdf*/,
 	               gz::sim::EntityComponentManager& ecm,
 	               gz::sim::EventManager& /*eventMgr*/) override
 	{
@@ -78,64 +73,26 @@ public:
 			return;
 		}
 
-		// Heave is a pure world-Z offset added on top of whatever pose this
-		// model was placed at (world file's own <pose>, or wherever a
-		// parent <include> put it) -- NOT necessarily the world origin.
-		// <mean_height>, if given, overrides just the Z component of that
-		// reference (e.g. to heave about an exact height regardless of the
-		// spawn pose's own Z).
-		auto poseComp = ecm.Component<gz::sim::components::Pose>(model_.Entity());
-		referencePose_ = poseComp ? poseComp->Data() : gz::math::Pose3d::Zero;
-		if(sdf->HasElement("mean_height")){
-			referencePose_.Pos().Z() = sdf->Get<double>("mean_height", referencePose_.Pos().Z());
-		}
-
-		if(sdf->HasElement("heave_component")){
-			sdf::ElementConstPtr elem = sdf->FindElement("heave_component");
-			while(elem){
-				HeaveComponent hc;
-				hc.amplitude = elem->Get<double>("amplitude", 0.0);
-				hc.period_s = elem->Get<double>("period_s", 1.0);
-				hc.phase_rad = elem->Get<double>("phase_rad", 0.0);
-				if(hc.period_s > 1e-6 && hc.amplitude != 0.0){
-					components_.push_back(hc);
-				}
-				elem = elem->GetNextElement("heave_component");
-			}
-		}
-		if(components_.empty()){
-			// Sensible default so the plugin visibly does something even
-			// with no <heave_component> configured, rather than silently
-			// sitting still.
-			components_.push_back({0.3, 4.0, 0.0});
-			std::cout << "[PadMotionPlugin] no <heave_component> configured -- "
-			          << "defaulting to a single 0.3m/4.0s tone." << std::endl;
-		}
-
-		odomTopic_ = sdf->Get<std::string>("odometry_topic", "/pad/fmu/out/vehicle_odometry");
-		publishRateHz_ = sdf->Get<double>("publish_rate_hz", 50.0);
-		publishPeriod_ = (publishRateHz_ > 0.0) ? (1.0 / publishRateHz_) : 0.0;
-
 		if(!rclcpp::ok()){
 			rclcpp::init(0, nullptr);
 		}
 		std::string modelName = model_.Name(ecm);
-		// Node name includes the model name so multiple pad instances in
-		// one world don't collide.
+		// Node name includes the model name so multiple pad instances in one
+		// world don't collide.
 		node_ = std::make_shared<rclcpp::Node>("pad_motion_plugin_" + modelName);
 		// Matches the best-effort/depth-1 QoS every other PX4 topic in this
 		// workspace uses (traj_manager.cpp, dummy_publisher.py).
 		rclcpp::QoS qos(1);
 		qos.best_effort();
 		qos.durability_volatile();
-		odomPub_ = node_->create_publisher<px4_msgs::msg::VehicleOdometry>(odomTopic_, qos);
+		odomPub_ = node_->create_publisher<px4_msgs::msg::VehicleOdometry>(
+			"/pad/fmu/out/vehicle_odometry", qos);
 
 		valid_ = true;
-		std::cout << "[PadMotionPlugin] configured for model '" << modelName << "': "
-		          << components_.size() << " heave component(s) about mean height "
-		          << referencePose_.Pos().Z() << "m, publishing GROUND-TRUTH "
-		          << "VehicleOdometry on " << odomTopic_
-		          << " @ " << publishRateHz_ << "Hz (NED, identity attitude -- heave-only scope)."
+		std::cout << "[PadMotionPlugin] configured for model '" << modelName
+		          << "' -- reading its actual Gazebo pose every tick and "
+		          << "republishing as GROUND-TRUTH VehicleOdometry (NED, "
+		          << "position + linear velocity only; identity attitude)."
 		          << std::endl;
 	}
 
@@ -144,77 +101,59 @@ public:
 		if(!valid_ || info.paused){
 			return;
 		}
+		auto poseComp = ecm.Component<gz::sim::components::Pose>(model_.Entity());
+		if(!poseComp){
+			return; // nothing to read yet
+		}
+		const gz::math::Pose3d& poseEnu = poseComp->Data();
 		double t = std::chrono::duration<double>(info.simTime).count();
 
-		double zOffset = 0.0; // world-Z (up), relative to referencePose_
-		double zRate = 0.0;
-		for(const auto& hc : components_){
-			double w = 2.0 * M_PI / hc.period_s;
-			double theta = w * t + hc.phase_rad;
-			zOffset += hc.amplitude * std::sin(theta);
-			zRate += hc.amplitude * w * std::cos(theta);
+		gz::math::Vector3d velEnu = gz::math::Vector3d::Zero;
+		if(haveLast_){
+			double dt = t - lastT_;
+			if(dt > 1e-9){
+				velEnu = (poseEnu.Pos() - lastPosEnu_) / dt;
+			}
 		}
+		lastPosEnu_ = poseEnu.Pos();
+		lastT_ = t;
+		haveLast_ = true;
 
-		gz::math::Pose3d newPose = referencePose_;
-		newPose.Pos().Z() += zOffset;
-
-		auto poseComp = ecm.Component<gz::sim::components::Pose>(model_.Entity());
-		if(poseComp){
-			poseComp->Data() = newPose;
-		}
-		else{
-			ecm.CreateComponent(model_.Entity(), gz::sim::components::Pose(newPose));
-		}
-		// Marks the component as changing every tick so other systems'
-		// change-tracking (rendering, any pose-publisher/sensor) picks up
-		// this write -- a direct Data() mutation above alone isn't
-		// guaranteed to be noticed by every downstream system.
-		ecm.SetChanged(model_.Entity(), gz::sim::components::Pose::typeId,
-		                gz::sim::ComponentState::PeriodicChange);
-
-		if(publishPeriod_ > 0.0 && (t - lastPublishT_) < publishPeriod_){
-			return;
-		}
-		lastPublishT_ = t;
-		publishOdometry(newPose, zRate, info);
+		publishOdometry(poseEnu, velEnu, info);
 	}
 
 private:
-	void publishOdometry(const gz::math::Pose3d& worldPoseEnu, double zRateEnuUp,
+	void publishOdometry(const gz::math::Pose3d& poseEnu, const gz::math::Vector3d& velEnu,
 	                      const gz::sim::UpdateInfo& info)
 	{
-		// This world/plugin assumes an ENU-convention world frame (X-East,
-		// Y-North, Z-Up), matching PX4's own gz_bridge and standard ROS
-		// practice -- if embedding wave_pad into a DIFFERENT existing
-		// world, confirm that world uses the same convention before
-		// trusting this ground truth.
+		// This world assumes an ENU-convention world frame (X-East, Y-North,
+		// Z-Up), matching PX4's own gz_bridge and standard ROS practice --
+		// confirm before trusting this ground truth in a differently-
+		// configured world.
 		//   NED.x (N) = ENU.y,  NED.y (E) = ENU.x,  NED.z (D) = -ENU.z
-		// Heave-only scope: attitude is untouched (identity q, zero angular
-		// velocity) regardless of frame convention -- see the class comment
-		// for what adding roll/pitch here requires.
 		px4_msgs::msg::VehicleOdometry msg;
 		auto simUs = std::chrono::duration_cast<std::chrono::microseconds>(info.simTime).count();
 		msg.timestamp = static_cast<uint64_t>(simUs);
 		msg.timestamp_sample = msg.timestamp;
-		msg.position[0] = static_cast<float>(worldPoseEnu.Pos().Y());
-		msg.position[1] = static_cast<float>(worldPoseEnu.Pos().X());
-		msg.position[2] = static_cast<float>(-worldPoseEnu.Pos().Z());
+		msg.position[0] = static_cast<float>(poseEnu.Pos().Y());
+		msg.position[1] = static_cast<float>(poseEnu.Pos().X());
+		msg.position[2] = static_cast<float>(-poseEnu.Pos().Z());
+		// Attitude/angular velocity: identity/zero, unconditionally -- see
+		// the class comment for why this isn't a real passthrough yet.
 		msg.q = {1.0f, 0.0f, 0.0f, 0.0f};
-		msg.velocity[0] = 0.0f;
-		msg.velocity[1] = 0.0f;
-		msg.velocity[2] = static_cast<float>(-zRateEnuUp);
+		msg.velocity[0] = static_cast<float>(velEnu.Y());
+		msg.velocity[1] = static_cast<float>(velEnu.X());
+		msg.velocity[2] = static_cast<float>(-velEnu.Z());
 		msg.angular_velocity = {0.0f, 0.0f, 0.0f};
 		odomPub_->publish(msg);
 	}
 
 	gz::sim::Model model_;
 	bool valid_ = false;
-	gz::math::Pose3d referencePose_ = gz::math::Pose3d::Zero;
-	std::vector<HeaveComponent> components_;
-	std::string odomTopic_;
-	double publishRateHz_ = 50.0;
-	double publishPeriod_ = 0.02;
-	double lastPublishT_ = -1.0;
+
+	bool haveLast_ = false;
+	gz::math::Vector3d lastPosEnu_ = gz::math::Vector3d::Zero;
+	double lastT_ = 0.0;
 
 	rclcpp::Node::SharedPtr node_;
 	rclcpp::Publisher<px4_msgs::msg::VehicleOdometry>::SharedPtr odomPub_;

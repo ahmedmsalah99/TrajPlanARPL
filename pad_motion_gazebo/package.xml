@@ -3,7 +3,7 @@
 <package format="3">
   <name>pad_motion_gazebo</name>
   <version>0.0.0</version>
-  <description>gz-sim Model plugin that kinematically animates a perch pad's heave motion and publishes ground-truth px4_msgs/VehicleOdometry, for testing the SPA heave predictor (ros_traj_gen_utils) against a known signal.</description>
+  <description>gz-sim Model plugin that reads a model's actual Gazebo pose every tick and republishes it as ground-truth px4_msgs/VehicleOdometry -- a passive telemetry bridge, not a motion generator. Used to feed the SPA predictor (spa_predictor package) a known/simulated pad signal, whatever separately drives the pad's motion in Gazebo.</description>
 
   <maintainer email="jeff@todo.todo">jeff</maintainer>
   <license>GPLv3</license>
@@ -17,7 +17,6 @@
        version-pinned key. Install ros-gz / gz-sim for your ROS distro per
        https://gazebosim.org/docs, e.g. `ros-jazzy-ros-gz` (Harmonic) or
        `ros-humble-ros-gz` (Fortress). -->
-  <exec_depend>ros_gz_sim</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

@@ -22,10 +22,12 @@ else()
 endif()
 message(STATUS "pad_motion_gazebo: building PadMotionPlugin against gz-sim${GZ_SIM_VER}")
 
-# Plugin library, loaded by gz-sim's plugin loader (see the pad's <plugin
-# filename="PadMotionPlugin" .../> in worlds/pad_motion_test.sdf) -- NOT a
-# ROS node executable, even though it links rclcpp/px4_msgs directly to
-# publish ground truth from inside the .so with no separate bridge process.
+# Plugin library, loaded by gz-sim's plugin loader (via a
+# <plugin filename="PadMotionPlugin" name="pad_motion::PadMotionPlugin"/>
+# element in whatever world/model SDF embeds it -- that SDF lives outside
+# this package) -- NOT a ROS node executable, even though it links
+# rclcpp/px4_msgs directly to publish ground truth from inside the .so with
+# no separate bridge process.
 add_library(PadMotionPlugin SHARED src/PadMotionPlugin.cc)
 target_link_libraries(PadMotionPlugin PRIVATE gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER})
 ament_target_dependencies(PadMotionPlugin rclcpp px4_msgs)
@@ -34,11 +36,6 @@ install(
   TARGETS PadMotionPlugin
   LIBRARY DESTINATION lib/${PROJECT_NAME}
   RUNTIME DESTINATION lib/${PROJECT_NAME}
-)
-
-install(
-  DIRECTORY models worlds launch
-  DESTINATION share/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)
