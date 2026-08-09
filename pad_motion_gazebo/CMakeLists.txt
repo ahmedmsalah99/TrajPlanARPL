@@ -29,7 +29,11 @@ message(STATUS "pad_motion_gazebo: building PadMotionPlugin against gz-sim${GZ_S
 # rclcpp/px4_msgs directly to publish ground truth from inside the .so with
 # no separate bridge process.
 add_library(PadMotionPlugin SHARED src/PadMotionPlugin.cc)
-target_link_libraries(PadMotionPlugin PRIVATE gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER})
+# Plain (non-keyword) signature: ament_target_dependencies() below also
+# calls target_link_libraries() on this target in plain form, and CMake
+# forbids mixing keyword (PUBLIC/PRIVATE/INTERFACE) and plain signatures on
+# the same target.
+target_link_libraries(PadMotionPlugin gz-sim${GZ_SIM_VER}::gz-sim${GZ_SIM_VER})
 ament_target_dependencies(PadMotionPlugin rclcpp px4_msgs)
 
 install(
