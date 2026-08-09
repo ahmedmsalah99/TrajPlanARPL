@@ -99,7 +99,16 @@ public:
 		double phase_rad; // s(t) contribution = amplitude*sin(2*pi*freq_hz*t + phase_rad)
 	};
 
-	explicit SpaPredictor(const Config& cfg = Config());
+	// Split into two overloads (rather than one ctor with `= Config()`) --
+	// a default argument referencing a NESTED class's implicit default
+	// constructor isn't usable yet at its point of declaration inside the
+	// ENCLOSING class's own body (Config's default member initializers
+	// aren't "complete" there), even though Config itself is already fully
+	// defined above. See SpaPredictor()'s definition in the .cpp, which
+	// delegates to the Config& overload entirely outside this class body,
+	// where both types are unambiguously complete.
+	SpaPredictor();
+	explicit SpaPredictor(const Config& cfg);
 
 	// Feed one measurement at absolute time t (seconds, monotonic, caller's
 	// clock). Samples must arrive in non-decreasing t; a sample with

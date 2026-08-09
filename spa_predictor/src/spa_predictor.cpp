@@ -8,6 +8,8 @@ namespace {
 constexpr double kTwoPi = 2.0 * M_PI;
 }
 
+SpaPredictor::SpaPredictor() : SpaPredictor(Config()) {}
+
 SpaPredictor::SpaPredictor(const Config& cfg) : cfg_(cfg)
 {
 	int nBins = std::max(1, static_cast<int>(std::ceil(cfg_.sigma_max_horizon / cfg_.sigma_bin_s)) + 1);
