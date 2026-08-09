@@ -1,0 +1,100 @@
+<?xml version="1.0" ?>
+<!--
+Standalone gz-sim world for validating PadMotionPlugin/spa_heave_node in
+isolation, with no drone involved. Launch via
+`ros2 launch pad_motion_gazebo pad_motion_sim.launch.py`, then point
+ros_traj_gen_utils' spa_heave_node at the pad's ground-truth topic (default
+/pad/fmu/out/vehicle_odometry, set below).
+
+Assumes an ENU-convention world frame (X-East, Y-North, Z-Up), matching
+PX4's own gz_bridge and standard ROS practice: see PadMotionPlugin.cc's
+class comment for the ENU-to-NED conversion this relies on.
+-->
+<sdf version="1.9">
+  <world name="pad_motion_test">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"></plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"></plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"></plugin>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.6 0.6 0.6 1</ambient>
+            <diffuse>0.6 0.6 0.6 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- The pad: <static>true</static> is required, see
+         PadMotionPlugin.cc's class comment on why kinematic driving needs
+         it. Motion + ground-truth publishing are entirely self-contained
+         inside this model's own <plugin>, per design: nothing else in this
+         world needs to know the pad moves. -->
+    <model name="wave_pad">
+      <static>true</static>
+      <pose>3 0 0.5 0 0 0</pose>
+      <link name="pad_link">
+        <inertial>
+          <mass>50</mass>
+          <inertia>
+            <ixx>1</ixx><iyy>1</iyy><izz>1</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><box><size>1.0 1.0 0.05</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.0 1.0 0.05</size></box></geometry>
+          <material>
+            <ambient>0.9 0.2 0.1 1</ambient>
+            <diffuse>0.9 0.2 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <plugin filename="PadMotionPlugin" name="pad_motion::PadMotionPlugin">
+        <odometry_topic>/pad/fmu/out/vehicle_odometry</odometry_topic>
+        <publish_rate_hz>50.0</publish_rate_hz>
+        <!-- Two-tone heave with deliberately non-harmonic periods (4.0s,
+             1.7s) rather than a single pure tone: a more representative
+             testbed for the SPA's mode-detection stage (see the planning
+             discussion this package came out of; fitting a single sinusoid
+             is a trivial case that wouldn't exercise peak-picking at all). -->
+        <heave_component>
+          <amplitude>0.3</amplitude>
+          <period_s>4.0</period_s>
+          <phase_rad>0.0</phase_rad>
+        </heave_component>
+        <heave_component>
+          <amplitude>0.1</amplitude>
+          <period_s>1.7</period_s>
+          <phase_rad>1.2</phase_rad>
+        </heave_component>
+      </plugin>
+    </model>
+  </world>
+</sdf>

@@ -34,6 +34,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/CuboidMap.msg
   msg/AprilTagDetection.msg
   msg/AprilTagDetectionArray.msg
+  msg/SpaPrediction.msg
   DEPENDENCIES std_msgs geometry_msgs
 )
 
@@ -63,6 +64,7 @@ add_library(ros_traj_gen_utils_lib
   src/pub_sub/apriltag_utils.cpp #Move to Apriltag package later
   src/pub_sub/odom_utils.cpp
   src/pub_sub/poscmd_publisher.cpp
+  src/pub_sub/spa_predictor.cpp
   src/cuboid_map/rect_node.cpp
   src/cuboid_map/ros_cuboid_utils.cpp
   src/ros_replanner_utils.cpp
@@ -86,6 +88,16 @@ target_link_libraries(traj_exe
   ${cpp_typesupport_target}
 )
 
+# Standalone SPA heave predictor node (see spa_heave_node.cpp) -- not linked
+# into traj_exe yet, this is Phase 2 of the SPA rollout (validate against a
+# known/simulated signal before anything consumes its output for real).
+add_executable(spa_heave_node src/spa_heave_node.cpp)
+ament_target_dependencies(spa_heave_node ${dependencies})
+target_link_libraries(spa_heave_node
+  ros_traj_gen_utils_lib
+  ${cpp_typesupport_target}
+)
+
 install(
   DIRECTORY include/
   DESTINATION include
@@ -100,7 +112,7 @@ install(
 )
 
 install(
-  TARGETS traj_exe
+  TARGETS traj_exe spa_heave_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

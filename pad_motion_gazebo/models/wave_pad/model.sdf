@@ -1,0 +1,49 @@
+<?xml version="1.0" ?>
+<!--
+Standalone, includable version of the pad model embedded directly in
+worlds/pad_motion_test.sdf: same model, meant for `<include><uri>model://
+wave_pad</uri></include>` into an EXISTING world (e.g. a real PX4 SITL
+world) instead of the self-contained test world. Deliberately no top-level
+<pose> here; set it at the include site.
+
+See PadMotionPlugin.cc's class comment for the ENU-world-frame assumption
+and the <static>true</static> requirement.
+-->
+<sdf version="1.9">
+  <model name="wave_pad">
+    <static>true</static>
+    <link name="pad_link">
+      <inertial>
+        <mass>50</mass>
+        <inertia>
+          <ixx>1</ixx><iyy>1</iyy><izz>1</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry><box><size>1.0 1.0 0.05</size></box></geometry>
+      </collision>
+      <visual name="visual">
+        <geometry><box><size>1.0 1.0 0.05</size></box></geometry>
+        <material>
+          <ambient>0.9 0.2 0.1 1</ambient>
+          <diffuse>0.9 0.2 0.1 1</diffuse>
+        </material>
+      </visual>
+    </link>
+    <plugin filename="PadMotionPlugin" name="pad_motion::PadMotionPlugin">
+      <odometry_topic>/pad/fmu/out/vehicle_odometry</odometry_topic>
+      <publish_rate_hz>50.0</publish_rate_hz>
+      <heave_component>
+        <amplitude>0.3</amplitude>
+        <period_s>4.0</period_s>
+        <phase_rad>0.0</phase_rad>
+      </heave_component>
+      <heave_component>
+        <amplitude>0.1</amplitude>
+        <period_s>1.7</period_s>
+        <phase_rad>1.2</phase_rad>
+      </heave_component>
+    </plugin>
+  </model>
+</sdf>
