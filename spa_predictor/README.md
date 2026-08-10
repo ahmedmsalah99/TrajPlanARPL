@@ -37,6 +37,11 @@ source install/setup.bash
 ros2 launch spa_predictor spa_axes.launch.py
 # Override the shared input source (default: pad_motion_gazebo's topic):
 ros2 launch spa_predictor spa_axes.launch.py input_topic:=/some/other/vehicle_odometry
+# Tune mode-detection GROUPED as horizontal (x+y) vs heave, rather than per
+# axis -- x/y and heave are different physical dynamics; x and y haven't
+# shown a need to differ from each other. Any TUNABLE_PARAMS entry left
+# unset keeps spa_axis_node's own Config default (see spa_predictor.h).
+ros2 launch spa_predictor spa_axes.launch.py horizontal_peak_sensitivity:=0.08 heave_t_fft_s:=15.0
 
 # Or run a single axis by hand:
 ros2 run spa_predictor spa_axis_node                                    # heave (axis=2, default)
@@ -64,7 +69,7 @@ without extra flags.
 | `horizons_s` | `[0, 0.5, 1, 1.5, 2, 3, 4, 5]` | horizons requested each cycle; also what `sigma_s` is assessed at |
 | `t_fft_s` | `25.0` | mode-detection window; must span several periods of the slowest mode |
 | `f_min_hz` / `f_max_hz` | `0.03` / `2.0` | mode search band -- `f_min_hz` excludes near-DC drift from being fit as a spurious mode |
-| `peak_sensitivity` | `0.15` | peak acceptance threshold, fraction of the largest in-band peak |
+| `peak_sensitivity` | `0.10` | peak acceptance threshold, fraction of the largest in-band peak |
 | `max_modes` | `4` | cap on simultaneously-tracked modes |
 | `process_noise_osc` / `process_noise_offset` / `measurement_noise` | `1e-4` / `5e-3` / `0.01` | Kalman tuning -- see `spa_predictor.h`'s `Config` comments |
 | `nominal_dt_s` | `1/30` | sample period the steady-state gain is solved for (propagation always uses the true per-sample dt regardless) |
