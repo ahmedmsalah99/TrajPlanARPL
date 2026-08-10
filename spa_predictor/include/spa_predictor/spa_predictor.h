@@ -128,12 +128,30 @@ public:
 	// Returns false (value_out untouched) if !initialized().
 	bool predict(double horizon_s, double* value_out) const;
 
+	// Like predict(), but also returns the signal's time-derivative at the
+	// same horizon (e.g. heave rate, not just heave) -- both come from the
+	// SAME propagated oscillator state (state_'s x_{i,2} components ARE the
+	// modes' velocity contributions, already computed every propagation;
+	// see the state_ member comment), so this costs no more than predict()
+	// alone. Prefer this over a separate predict() call when both are
+	// needed -- e.g. AHC needs the target's own velocity to compute a
+	// relative impact velocity (v_impact = v_land - v_target), not just its
+	// position. Returns false (outputs untouched) if !initialized().
+	bool predictWithVelocity(double horizon_s, double* value_out, double* velocity_out) const;
+
 	// Convenience: predict at every horizon in horizons_s, in order. Also
-	// records each prediction for self-assessment (see sigmaAtHorizon()) --
-	// this is the ONLY way predictions enter the self-assessment buffer, so
-	// call this (not repeated predict()) if you want sigmaAtHorizon() to
-	// reflect the horizons you actually care about.
-	std::vector<double> predictAndAssess(const std::vector<double>& horizons_s);
+	// records each VALUE prediction for self-assessment (see
+	// sigmaAtHorizon()) -- this is the ONLY way predictions enter the
+	// self-assessment buffer, so call this (not repeated predict()) if you
+	// want sigmaAtHorizon() to reflect the horizons you actually care
+	// about. If velocity_out is non-null, it is resized to horizons_s.size()
+	// and filled with the matching velocity at each horizon (from the same
+	// propagation as the value -- see predictWithVelocity()); velocity has
+	// no separate self-assessment, since addMeasurement() only ever
+	// supplies position/value, never an independent velocity measurement to
+	// check a velocity prediction against.
+	std::vector<double> predictAndAssess(const std::vector<double>& horizons_s,
+	                                      std::vector<double>* velocity_out = nullptr);
 
 	// Empirical RMS error of past predictions made at ~this horizon,
 	// measured by comparing each recorded prediction (see
@@ -197,9 +215,20 @@ private:
 	// sum of each mode's x_{i,1} plus the offset state.
 	double sampleState(const Eigen::VectorXd& s) const;
 
+	// Time-derivative contribution of state_ at the CURRENT state: sum of
+	// each mode's x_{i,2} (its velocity component). The offset state has no
+	// dynamics (see stepEstimator()'s handling of the last entry), so unlike
+	// sampleState() it contributes nothing here.
+	double sampleVelocityState(const Eigen::VectorXd& s) const;
+
 	// Propagates a COPY of state_ forward by horizon_s (exact, closed-form,
-	// any real horizon) and returns its sampled value -- the shared
-	// implementation behind predict()/predictAndAssess().
+	// any real horizon) and returns the full propagated state vector --
+	// shared by propagateAndSample() and predictWithVelocity(), so a value
+	// and its matching velocity always come from the exact same propagation.
+	Eigen::VectorXd propagateState(double horizon_s) const;
+
+	// sampleState(propagateState(horizon_s)) -- the shared implementation
+	// behind predict()/predictAndAssess() when only the value is needed.
 	double propagateAndSample(double horizon_s) const;
 
 	// -- self-assessment --

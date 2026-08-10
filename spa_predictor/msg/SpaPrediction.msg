@@ -26,6 +26,14 @@ float64 offset
 # samples yet; treat NaN as "unknown", not "zero error".
 float64[] horizon_s
 float64[] predicted_value
+# The signal's time-derivative at each horizon (e.g. heave rate, not just
+# heave) -- from the SAME propagation as predicted_value, see
+# SpaPredictor::predictWithVelocity()'s comment. Needed for AHC-style
+# relative impact velocity (v_impact = v_land - v_target), not just
+# position matching. No separate self-assessment -- see sigma_s's caveat,
+# which applies to predicted_value only; there is no independent velocity
+# measurement to check this against.
+float64[] predicted_velocity
 float64[] sigma_s
 
 # Diagnostic: count of measurements dropped for arriving out of order (see

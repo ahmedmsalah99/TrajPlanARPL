@@ -3,7 +3,7 @@
 <package format="3">
   <name>spa_predictor</name>
   <version>0.0.0</version>
-  <description>Signal Prediction Algorithm (SPA) -- a scalar-signal predictor (DFT mode detection + steady-state Kalman oscillator bank + self-assessment) per Abujoub, McPhee &amp; Irani (2020), Sec. 3.1. Standalone from ros_traj_gen_utils so it stays reusable/testable independent of the planner. spa_heave_node wraps it for the pad heave use case.</description>
+  <description>Signal Prediction Algorithm (SPA) -- a scalar-signal predictor (DFT mode detection + steady-state Kalman oscillator bank + self-assessment) per Abujoub, McPhee &amp; Irani (2020), Sec. 3.1. Standalone from ros_traj_gen_utils so it stays reusable/testable independent of the planner. spa_axis_node wraps it per-axis (x/y/heave) for the pad position use case.</description>
 
   <maintainer email="jeff@todo.todo">jeff</maintainer>
   <license>GPLv3</license>

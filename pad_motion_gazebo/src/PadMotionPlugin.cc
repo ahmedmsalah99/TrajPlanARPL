@@ -3,7 +3,7 @@
 // ground truth, the same message type/convention this repo's drone
 // odometry already flows through (traj_manager.cpp, dummy_publisher.py) --
 // so any downstream consumer (starting with spa_predictor's
-// spa_heave_node) needs zero new parsing code.
+// spa_axis_node) needs zero new parsing code.
 //
 // Deliberately a passive telemetry bridge, not a motion generator: this
 // plugin does not drive, script, or otherwise decide how the pad moves --

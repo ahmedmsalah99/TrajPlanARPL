@@ -97,6 +97,20 @@ double SpaPredictor::sampleState(const Eigen::VectorXd& s) const
 	return v;
 }
 
+double SpaPredictor::sampleVelocityState(const Eigen::VectorXd& s) const
+{
+	// Sum of each mode's x_{i,2} (its time-derivative contribution). No
+	// offset term -- the offset state is constant (see stepEstimator():
+	// propagated(sz-1) = state_(sz-1), no dynamics), so its derivative is
+	// zero and it correctly drops out here.
+	double v = 0.0;
+	int n = static_cast<int>(modes_.size());
+	for(int i = 0; i < n; i++){
+		v += s(2 * i + 1);
+	}
+	return v;
+}
+
 void SpaPredictor::stepEstimator(double dt, bool haveMeasurement, double value)
 {
 	int n = static_cast<int>(modes_.size());
@@ -394,7 +408,7 @@ void SpaPredictor::rebuildObserver(const std::vector<Mode>& newModes)
 // Prediction
 // ---------------------------------------------------------------------------
 
-double SpaPredictor::propagateAndSample(double horizon_s) const
+Eigen::VectorXd SpaPredictor::propagateState(double horizon_s) const
 {
 	int n = static_cast<int>(modes_.size());
 	int sz = state_.size();
@@ -404,7 +418,12 @@ double SpaPredictor::propagateAndSample(double horizon_s) const
 		s.segment<2>(2 * i) = oscillatorTransition(w, horizon_s) * state_.segment<2>(2 * i);
 	}
 	s(sz - 1) = state_(sz - 1);
-	return sampleState(s);
+	return s;
+}
+
+double SpaPredictor::propagateAndSample(double horizon_s) const
+{
+	return sampleState(propagateState(horizon_s));
 }
 
 bool SpaPredictor::predict(double horizon_s, double* value_out) const
@@ -416,16 +435,36 @@ bool SpaPredictor::predict(double horizon_s, double* value_out) const
 	return true;
 }
 
-std::vector<double> SpaPredictor::predictAndAssess(const std::vector<double>& horizons_s)
+bool SpaPredictor::predictWithVelocity(double horizon_s, double* value_out, double* velocity_out) const
+{
+	if(!initialized_){
+		return false;
+	}
+	Eigen::VectorXd s = propagateState(horizon_s);
+	*value_out = sampleState(s);
+	*velocity_out = sampleVelocityState(s);
+	return true;
+}
+
+std::vector<double> SpaPredictor::predictAndAssess(const std::vector<double>& horizons_s,
+                                                     std::vector<double>* velocity_out)
 {
 	std::vector<double> out;
 	out.reserve(horizons_s.size());
+	if(velocity_out){
+		velocity_out->clear();
+		velocity_out->reserve(horizons_s.size());
+	}
 	if(!initialized_){
 		return out;
 	}
 	for(double h : horizons_s){
-		double v = propagateAndSample(h);
+		Eigen::VectorXd s = propagateState(h);
+		double v = sampleState(s);
 		out.push_back(v);
+		if(velocity_out){
+			velocity_out->push_back(sampleVelocityState(s));
+		}
 		pending_.push_back({lastT_, lastT_ + h, v});
 	}
 	// Bound the pending buffer so a prediction that never resolves (e.g.
