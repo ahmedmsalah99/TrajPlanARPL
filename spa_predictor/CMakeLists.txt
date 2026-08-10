@@ -80,6 +80,11 @@ install(
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
 ament_export_include_directories(include)
 ament_export_libraries(spa_predictor_lib)
 ament_export_dependencies(rosidl_default_runtime ${dependencies})
