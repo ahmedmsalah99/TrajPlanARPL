@@ -51,8 +51,16 @@ public:
 		double f_min_hz = 0.03;
 		double f_max_hz = 2.0;
 		// Peak acceptance threshold, as a fraction of the largest in-band
-		// peak's magnitude (paper's "peak detection sensitivity mu").
-		double peak_sensitivity = 0.15;
+		// peak's magnitude (paper's "peak detection sensitivity mu"). 0.15
+		// was found in the field to be too aggressive: a genuine, physically
+		// real second harmonic (magnitude ratio 0.143-0.145, consistent
+		// across multiple mode-detection passes -- see [SPA_DIAG] logging)
+		// was dropped every single pass by a hair below the old 0.15
+		// threshold. 0.10 leaves comfortable margin below that real
+		// component while staying an order of magnitude above genuine
+		// noise-floor peaks observed in the same field data (e.g.
+		// magnitude ratio ~0.0001).
+		double peak_sensitivity = 0.10;
 		// Upper bound on simultaneously-tracked modes -- bounds the
 		// observer's state size (2*max_modes + 1) and the cost of the
 		// Riccati solve run at each mode-set rebuild.
