@@ -50,13 +50,14 @@ target_include_directories(spa_predictor_lib PUBLIC
 # rest of this workspace's packages.
 ament_target_dependencies(spa_predictor_lib ${dependencies})
 
-# Executable: standalone SPA heave predictor node (see spa_heave_node.cpp).
-# Not linked into ros_traj_gen_utils/traj_exe -- this is Phase 2 of the SPA
+# Executable: standalone SPA per-axis predictor node (see spa_axis_node.cpp)
+# -- run one instance per axis (x/y/heave) via its `axis` parameter. Not
+# linked into ros_traj_gen_utils/traj_exe -- this is Phase 2 of the SPA
 # rollout (validate against a known/simulated signal before anything
 # consumes its output for real).
-add_executable(spa_heave_node src/spa_heave_node.cpp)
-ament_target_dependencies(spa_heave_node ${dependencies})
-target_link_libraries(spa_heave_node
+add_executable(spa_axis_node src/spa_axis_node.cpp)
+ament_target_dependencies(spa_axis_node ${dependencies})
+target_link_libraries(spa_axis_node
   spa_predictor_lib
   ${cpp_typesupport_target}
 )
@@ -75,7 +76,7 @@ install(
 )
 
 install(
-  TARGETS spa_heave_node
+  TARGETS spa_axis_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

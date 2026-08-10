@@ -1,15 +1,26 @@
-// Wraps SpaPredictor around the pad's ground-truth heave (z), as published
-// by pad_motion_gazebo's PadMotionPlugin on px4_msgs/VehicleOdometry, and
-// publishes predictions + self-assessment as spa_predictor/SpaPrediction.
+// Wraps SpaPredictor around one axis of the pad's ground-truth position, as
+// published by pad_motion_gazebo's PadMotionPlugin on
+// px4_msgs/VehicleOdometry, and publishes predictions + self-assessment as
+// spa_predictor/SpaPrediction.
+//
+// Generic over WHICH axis via the `axis` parameter (0/1/2 -> NED
+// position[0]/[1]/[2], i.e. x/North, y/East, heave/Down) -- run one
+// instance per axis you want predicted (e.g. three instances, one each for
+// x, y, heave) rather than three separate node implementations, matching
+// SpaPredictor's own design: one scalar-signal instance per degree of
+// freedom (see spa_predictor.h's class comment). Each instance gets its
+// own independent mode detection/estimation -- there is no assumption that
+// different axes share frequencies, which is correct (e.g. heave and sway
+// can genuinely be driven at different rates).
 //
 // Deliberately standalone -- not wired into ros_traj_gen_utils' traj_exe
 // yet, and deliberately in its own package (not ros_traj_gen_utils) so the
 // predictor stays reusable/testable independent of the planner. This is
 // Phase 2 of the SPA rollout (see the planning discussion this node came
-// out of): validate the predictor's mode detection and accuracy-vs-horizon
-// (sigma) against a known/simulated signal before anything consumes its
-// output for real. Point input_topic at a real (vision-derived) heave
-// source later without changing this node's logic.
+// out of): validate the predictor's mode detection and accuracy-vs-
+// horizon (sigma) against a known/simulated signal before anything
+// consumes its output for real. Point input_topic at a real (vision-
+// derived) position source later without changing this node's logic.
 #include <rclcpp/rclcpp.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
 #include <spa_predictor/msg/spa_prediction.hpp>
@@ -18,15 +29,40 @@
 #include <vector>
 #include <string>
 
-class SpaHeaveNode : public rclcpp::Node
+namespace
+{
+// Friendly name for the default topic/log text only -- axis_ itself (the
+// actual position[] index used) is what matters functionally.
+std::string axisName(int axis)
+{
+	switch(axis){
+		case 0: return "x";
+		case 1: return "y";
+		default: return "heave"; // axis 2 (NED z/Down) -- this repo's original/primary use case
+	}
+}
+} // namespace
+
+class SpaAxisNode : public rclcpp::Node
 {
 public:
-	SpaHeaveNode() : Node("spa_heave_node")
+	SpaAxisNode() : Node("spa_axis_node")
 	{
 		SpaPredictor::Config cfg; // defaults, overridden by parameters below
 
+		// Declared and read FIRST so output_topic's own default can be
+		// derived from it below (a fresh instance per axis, run with no
+		// other overrides, then publishes to distinct topics instead of
+		// colliding on one).
+		declare_parameter("axis", 2);
+		axis_ = static_cast<int>(get_parameter("axis").as_int());
+		if(axis_ < 0 || axis_ > 2){
+			RCLCPP_WARN(get_logger(), "axis=%d out of range [0,2] -- clamping to 2 (heave).", axis_);
+			axis_ = 2;
+		}
+
 		declare_parameter("input_topic", std::string("/pad/fmu/out/vehicle_odometry"));
-		declare_parameter("output_topic", std::string("/pad/spa/heave_prediction"));
+		declare_parameter("output_topic", std::string("/pad/spa/" + axisName(axis_) + "_prediction"));
 		declare_parameter("publish_rate_hz", 10.0);
 		declare_parameter("horizons_s", std::vector<double>{0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0});
 
@@ -68,7 +104,7 @@ public:
 		std::string input_topic = get_parameter("input_topic").as_string();
 		sub_ = create_subscription<px4_msgs::msg::VehicleOdometry>(
 			input_topic, px4_qos,
-			std::bind(&SpaHeaveNode::onOdom, this, std::placeholders::_1));
+			std::bind(&SpaAxisNode::onOdom, this, std::placeholders::_1));
 
 		std::string output_topic = get_parameter("output_topic").as_string();
 		pub_ = create_publisher<spa_predictor::msg::SpaPrediction>(output_topic, 10);
@@ -76,11 +112,13 @@ public:
 		double rate = get_parameter("publish_rate_hz").as_double();
 		timer_ = create_wall_timer(
 			std::chrono::duration<double>(1.0 / rate),
-			std::bind(&SpaHeaveNode::onTimer, this));
+			std::bind(&SpaAxisNode::onTimer, this));
 
 		RCLCPP_INFO(get_logger(),
-			"spa_heave_node up: %s (heave/z, NED) -> %s @ %.1f Hz, t_fft=%.1fs, %zu horizons",
-			input_topic.c_str(), output_topic.c_str(), rate, cfg.t_fft, horizons_.size());
+			"spa_axis_node up: axis=%d (%s, NED position[%d]) %s -> %s @ %.1f Hz, "
+			"t_fft=%.1fs, %zu horizons",
+			axis_, axisName(axis_).c_str(), axis_, input_topic.c_str(),
+			output_topic.c_str(), rate, cfg.t_fft, horizons_.size());
 	}
 
 private:
@@ -89,11 +127,12 @@ private:
 		// PX4 timestamps are microseconds since boot/epoch (matches the rest
 		// of this repo's px4_msgs handling, e.g. poscmd_publisher/dummy_publisher).
 		double t = static_cast<double>(msg->timestamp) * 1e-6;
-		// NED: position[2] is Down-positive, same convention this whole repo
-		// uses throughout (TrajBase/QPpolyTraj/apriltag_utils are all NED-
-		// native) -- "heave up" is therefore a DECREASE in this value.
-		double z = static_cast<double>(msg->position[2]);
-		predictor_->addMeasurement(t, z);
+		// NED: position[0]/[1]/[2] = North/East/Down. For axis=2 (heave),
+		// "heave up" is therefore a DECREASE in this value -- same
+		// convention this whole repo uses throughout (TrajBase/QPpolyTraj/
+		// apriltag_utils are all NED-native).
+		double value = static_cast<double>(msg->position[axis_]);
+		predictor_->addMeasurement(t, value);
 	}
 
 	void onTimer()
@@ -117,9 +156,11 @@ private:
 		}
 		msg.offset = predictor_->currentOffset();
 
-		std::vector<double> predicted = predictor_->predictAndAssess(horizons_);
+		std::vector<double> velocity;
+		std::vector<double> predicted = predictor_->predictAndAssess(horizons_, &velocity);
 		msg.horizon_s = horizons_;
 		msg.predicted_value = predicted;
+		msg.predicted_velocity = velocity;
 		msg.sigma_s.reserve(horizons_.size());
 		for(double h : horizons_){
 			msg.sigma_s.push_back(predictor_->sigmaAtHorizon(h));
@@ -129,6 +170,7 @@ private:
 		pub_->publish(msg);
 	}
 
+	int axis_ = 2;
 	std::unique_ptr<SpaPredictor> predictor_;
 	std::vector<double> horizons_;
 	rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr sub_;
@@ -139,7 +181,7 @@ private:
 int main(int argc, char** argv)
 {
 	rclcpp::init(argc, argv);
-	rclcpp::spin(std::make_shared<SpaHeaveNode>());
+	rclcpp::spin(std::make_shared<SpaAxisNode>());
 	rclcpp::shutdown();
 	return 0;
 }
