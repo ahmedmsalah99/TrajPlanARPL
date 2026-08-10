@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <limits>
 #include <iostream>
+#include <string>
 
 namespace {
 constexpr double kTwoPi = 2.0 * M_PI;
@@ -251,39 +252,76 @@ std::vector<SpaPredictor::Mode> SpaPredictor::detectModes() const
 		mag[k - kMin] = std::hypot(xc, xs);
 	}
 
-	// Step 2: peak-pick local maxima above cfg_.peak_sensitivity * (largest
-	// in-band peak), take up to max_modes by magnitude, and refine each
-	// peak's frequency via parabolic interpolation across its 3 neighboring
-	// bins -- raw bin resolution alone (1/t_fft) is too coarse: at a 25s
-	// window that is 0.04 Hz, which over a multi-second prediction horizon
-	// integrates to tens of degrees of phase error from frequency
-	// quantization alone. Parabolic interpolation recovers sub-bin accuracy
-	// essentially for free.
+	// Step 2: peak-pick local maxima, refine each one's frequency via
+	// parabolic interpolation across its 3 neighboring bins -- raw bin
+	// resolution alone (1/t_fft) is too coarse: at a 25s window that is
+	// 0.04 Hz, which over a multi-second prediction horizon integrates to
+	// tens of degrees of phase error from frequency quantization alone.
+	// Parabolic interpolation recovers sub-bin accuracy essentially for
+	// free (though NOT for free of all residual error -- any leftover
+	// frequency error still accumulates as phase error proportional to
+	// prediction horizon; this is the dominant reason long-horizon
+	// predictions degrade even when short-horizon ones look fine).
 	double maxMag = 0.0;
 	for(double m : mag){ maxMag = std::max(maxMag, m); }
 	if(maxMag <= 0.0){
+		std::cout << "[SPA_DIAG] mode detection: spectrum is flat (maxMag=0) -- no signal in band ["
+		          << cfg_.f_min_hz << ", " << cfg_.f_max_hz << "] Hz." << std::endl;
 		return {};
 	}
+
+	auto refineFreq = [&](int idx){
+		double yL = mag[idx - 1], yC = mag[idx], yR = mag[idx + 1];
+		double denom = (yL - 2.0 * yC + yR);
+		double delta = (std::fabs(denom) > 1e-12) ? 0.5 * (yL - yR) / denom : 0.0;
+		delta = std::clamp(delta, -0.5, 0.5);
+		return (idx + kMin + delta) * fResolution;
+	};
+
+	// Every local maximum in-band, REGARDLESS of peak_sensitivity -- a
+	// candidate that never even forms a local maximum here (e.g. smeared
+	// across many bins by non-stationary/non-sinusoidal motion, or spectral
+	// leakage from a nearby stronger component) can't be recovered by
+	// tuning peak_sensitivity or max_modes at all; only a candidate that
+	// DOES appear here but gets tagged DROPPED below is actually reachable
+	// by those two knobs. [SPA_DIAG] logs the full list every mode-
+	// detection pass (once per t_fft) so that distinction is visible
+	// instead of just seeing the final, already-filtered mode set.
 	struct Peak { int idx; double mag; };
-	std::vector<Peak> peaks;
+	std::vector<Peak> localMaxima;
 	for(int i = 1; i < static_cast<int>(mag.size()) - 1; i++){
-		if(mag[i] > mag[i - 1] && mag[i] > mag[i + 1] && mag[i] >= cfg_.peak_sensitivity * maxMag){
-			peaks.push_back({i, mag[i]});
+		if(mag[i] > mag[i - 1] && mag[i] > mag[i + 1]){
+			localMaxima.push_back({i, mag[i]});
 		}
 	}
-	std::sort(peaks.begin(), peaks.end(), [](const Peak& a, const Peak& b){ return a.mag > b.mag; });
-	if(static_cast<int>(peaks.size()) > cfg_.max_modes){
-		peaks.resize(cfg_.max_modes);
+	std::sort(localMaxima.begin(), localMaxima.end(),
+	          [](const Peak& a, const Peak& b){ return a.mag > b.mag; });
+
+	std::cout << "[SPA_DIAG] mode detection: " << localMaxima.size() << " local maxima in ["
+	          << cfg_.f_min_hz << ", " << cfg_.f_max_hz << "] Hz (bin width " << fResolution
+	          << " Hz), max_modes=" << cfg_.max_modes << ", peak_sensitivity=" << cfg_.peak_sensitivity
+	          << ":" << std::endl;
+	std::vector<Peak> peaks; // built in magnitude-descending order, same result as the old filter+sort+resize
+	for(const auto& p : localMaxima){
+		double frac = p.mag / maxMag;
+		std::string status;
+		if(frac < cfg_.peak_sensitivity){
+			status = "DROPPED (below peak_sensitivity)";
+		}
+		else if(static_cast<int>(peaks.size()) < cfg_.max_modes){
+			peaks.push_back(p);
+			status = "SELECTED";
+		}
+		else{
+			status = "DROPPED (rank > max_modes)";
+		}
+		std::cout << "[SPA_DIAG]   f=" << refineFreq(p.idx) << " Hz, mag/max=" << frac
+		          << " -- " << status << std::endl;
 	}
 
 	std::vector<double> freqs;
 	for(const auto& p : peaks){
-		double yL = mag[p.idx - 1], yC = mag[p.idx], yR = mag[p.idx + 1];
-		double denom = (yL - 2.0 * yC + yR);
-		double delta = (std::fabs(denom) > 1e-12) ? 0.5 * (yL - yR) / denom : 0.0;
-		delta = std::clamp(delta, -0.5, 0.5);
-		double kRefined = (p.idx + kMin) + delta;
-		freqs.push_back(kRefined * fResolution);
+		freqs.push_back(refineFreq(p.idx));
 	}
 
 	// Step 3: refit amplitude/phase/offset for ALL selected frequencies
