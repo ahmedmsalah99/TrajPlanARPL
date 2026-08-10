@@ -32,6 +32,13 @@ signal before anything consumes its output for real).
 ```bash
 colcon build --packages-select spa_predictor
 source install/setup.bash
+
+# All three axes (x, y, heave) at once, recommended:
+ros2 launch spa_predictor spa_axes.launch.py
+# Override the shared input source (default: pad_motion_gazebo's topic):
+ros2 launch spa_predictor spa_axes.launch.py input_topic:=/some/other/vehicle_odometry
+
+# Or run a single axis by hand:
 ros2 run spa_predictor spa_axis_node                                    # heave (axis=2, default)
 ros2 run spa_predictor spa_axis_node --ros-args -p axis:=0              # x/North
 ros2 run spa_predictor spa_axis_node --ros-args -p axis:=1              # y/East
