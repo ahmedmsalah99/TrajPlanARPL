@@ -84,6 +84,43 @@ time-derivative at each horizon. It has no `sigma_s`-style self-assessment:
 only position/value is ever measured (`addMeasurement()`), so there's no
 independent velocity measurement to check a velocity prediction against.
 
+## Offline accuracy evaluation
+
+Two diagnostic-only scripts (`scripts/`, not part of the C++ library/node
+above), for measuring prediction accuracy vs. horizon precisely rather than
+by eye off a live plot:
+
+- `spa_eval_logger.py`: a small rclpy node that records ground-truth pad
+  odometry and every `SpaPrediction` message to two CSVs (`pad_truth.csv`,
+  `spa_predictions.csv`), the latter already carrying `t_target = made_at_t
+  + horizon_s` per horizon -- the "shift" that lines a prediction up in
+  time with the ground-truth sample it was actually about.
+- `spa_eval_analyze.py`: a pure-Python (no ROS dependency) offline script
+  that loads those two CSVs, interpolates ground truth at each `t_target`,
+  and reports mean/median/RMSE/max error per horizon, plus three plots per
+  axis: shifted predictions overlaid on ground truth, error over time, and
+  error-vs-horizon (the direct, precise answer to "does accuracy degrade
+  with horizon, and by how much").
+
+```bash
+# Terminal 1: bring up the predictor(s) as usual
+ros2 launch spa_predictor spa_axes.launch.py
+
+# Terminal 2: record data (Ctrl-C once you have enough)
+ros2 run spa_predictor spa_eval_logger.py --ros-args -p output_dir:=/tmp/spa_eval
+
+# Afterwards: analyze (needs pandas/numpy/matplotlib -- pip install if missing)
+python3 install/spa_predictor/lib/spa_predictor/spa_eval_analyze.py \
+  --truth /tmp/spa_eval/pad_truth.csv \
+  --predictions /tmp/spa_eval/spa_predictions.csv \
+  --out-dir /tmp/spa_eval/plots
+```
+
+`spa_eval_analyze.py`'s `--axis` defaults to `all` (x, y, heave); pass
+`--show` to also open interactive plot windows instead of only saving
+PNGs. See each script's own docstring for the full CSV schema and every
+CLI option.
+
 ## Known limitation
 
 If one mode-detection pass finds no peaks (a genuinely calm moment, or just

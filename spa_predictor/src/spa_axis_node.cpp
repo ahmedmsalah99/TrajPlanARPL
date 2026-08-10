@@ -144,6 +144,11 @@ private:
 		msg.header.stamp = now();
 		msg.header.frame_id = "odom"; // NED, matches this repo's odom_frame convention
 		msg.initialized = true;
+		// See made_at_t's .msg comment: the actual time base horizon_s is
+		// relative to, NOT header.stamp (ROS time) -- these are only the
+		// same clock by coincidence, since addMeasurement() is fed PX4
+		// timestamp-derived seconds (see onOdom()).
+		msg.made_at_t = predictor_->lastMeasurementTime();
 
 		double filtered = 0.0;
 		predictor_->predict(0.0, &filtered);
