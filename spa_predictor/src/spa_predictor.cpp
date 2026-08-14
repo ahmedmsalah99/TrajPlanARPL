@@ -18,7 +18,7 @@ SpaPredictor::SpaPredictor(const Config& cfg) : cfg_(cfg)
 	sigmaBinsCount_.assign(nBins, 0);
 }
 
-void SpaPredictor::addMeasurement(double t, double value)
+void SpaPredictor::addMeasurement(double t, double value, double accel)
 {
 	if(initialized_ && t <= lastT_){
 		droppedSamples_ += 1;
@@ -55,7 +55,8 @@ void SpaPredictor::addMeasurement(double t, double value)
 
 	double dt = t - lastT_;
 	lastT_ = t;
-	stepEstimator(dt, /*haveMeasurement=*/true, value);
+	bool haveAccel = !std::isnan(accel);
+	stepEstimator(dt, /*haveMeasurement=*/true, value, haveAccel, accel);
 
 	maybeRunModeDetection();
 }
@@ -112,7 +113,22 @@ double SpaPredictor::sampleVelocityState(const Eigen::VectorXd& s) const
 	return v;
 }
 
-void SpaPredictor::stepEstimator(double dt, bool haveMeasurement, double value)
+double SpaPredictor::sampleAccelState(const Eigen::VectorXd& s) const
+{
+	// Sum of each mode's -w_i^2 * x_{i,1} -- exact for a harmonic
+	// oscillator (x1'' = -w^2 x1), not an approximation. No offset term,
+	// same reasoning as sampleVelocityState().
+	double a = 0.0;
+	int n = static_cast<int>(modes_.size());
+	for(int i = 0; i < n; i++){
+		double w = kTwoPi * modes_[i].freq_hz;
+		a += -(w * w) * s(2 * i);
+	}
+	return a;
+}
+
+void SpaPredictor::stepEstimator(double dt, bool haveMeasurement, double value,
+                                  bool haveAccel, double accelValue)
 {
 	int n = static_cast<int>(modes_.size());
 	int sz = 2 * n + 1;
@@ -142,10 +158,21 @@ void SpaPredictor::stepEstimator(double dt, bool haveMeasurement, double value)
 	// PREDICTOR form (next state as a function of the CURRENT, not
 	// current-corrected, estimate) -- see rebuildObserver()'s comment for
 	// the matching Riccati/gain derivation. The innovation is measured
-	// against C*x_k (sampleState(state_), i.e. BEFORE this step's
-	// propagation), not against the just-propagated state.
-	double innovation = value - sampleState(state_);
-	state_ = propagated + gainL_ * innovation;
+	// against C*x_k (BEFORE this step's propagation), not against the
+	// just-propagated state. gainL_ (2-channel) is used when an
+	// acceleration measurement is available this sample, gainLPosOnly_
+	// (1-channel, the original single-measurement gain) otherwise -- see
+	// their member comments.
+	if(haveAccel){
+		Eigen::Vector2d innovation;
+		innovation(0) = value - sampleState(state_);
+		innovation(1) = accelValue - sampleAccelState(state_);
+		state_ = propagated + gainL_ * innovation;
+	}
+	else{
+		double innovation = value - sampleState(state_);
+		state_ = propagated + gainLPosOnly_ * innovation;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -391,9 +418,9 @@ void SpaPredictor::rebuildObserver(const std::vector<Mode>& newModes)
 	newState(sz - 1) = prevOffset;
 	state_ = newState;
 
-	// Steady-state predictor-form Kalman gain (paper eq. 6's L), solved via
-	// fixed-point iteration on the associated discrete Riccati equation at
-	// the CONFIGURED nominal sample period, not the true per-sample dt.
+	// Steady-state predictor-form Kalman gain(s) (paper eq. 6's L), solved
+	// via fixed-point iteration on the associated discrete Riccati equation
+	// at the CONFIGURED nominal sample period, not the true per-sample dt.
 	// Deliberate approximation: re-solving a Riccati equation on every
 	// irregular-dt sample would be needlessly expensive for a predictor
 	// gain that only needs to be roughly right; state PROPAGATION (in
@@ -402,9 +429,14 @@ void SpaPredictor::rebuildObserver(const std::vector<Mode>& newModes)
 	// dynamics themselves. Revisit if the real feed's jitter turns out to
 	// be large relative to nominal_dt.
 	//
+	// Process model (Psi, Q) is shared by BOTH gains below -- it describes
+	// how state uncertainty grows between measurements, independent of
+	// which/how-many channels are actually measured. Only the measurement/
+	// output side (C, R) differs: Cpos alone (1 output) for gainLPosOnly_,
+	// [Cpos; Caccel] (2 outputs) for gainL_.
+	//
 	// System (per current mode set): Psi = blockdiag(oscillatorTransition_i,
-	// ..., 1), C = [1,0, 1,0, ..., 1] (picks each mode's x_{i,1} plus the
-	// offset state), scalar output.
+	// ..., 1).
 	Eigen::MatrixXd Psi = Eigen::MatrixXd::Zero(sz, sz);
 	for(int i = 0; i < n; i++){
 		double w = kTwoPi * modes_[i].freq_hz;
@@ -412,34 +444,62 @@ void SpaPredictor::rebuildObserver(const std::vector<Mode>& newModes)
 	}
 	Psi(sz - 1, sz - 1) = 1.0;
 
-	Eigen::MatrixXd C = Eigen::MatrixXd::Zero(1, sz);
-	for(int i = 0; i < n; i++){ C(0, 2 * i) = 1.0; }
-	C(0, sz - 1) = 1.0;
+	// Position/value output row: picks each mode's x_{i,1} plus the offset
+	// state -- matches sampleState().
+	Eigen::MatrixXd Cpos = Eigen::MatrixXd::Zero(1, sz);
+	for(int i = 0; i < n; i++){ Cpos(0, 2 * i) = 1.0; }
+	Cpos(0, sz - 1) = 1.0;
+
+	// Acceleration output row: picks each mode's -w_i^2 * x_{i,1} -- matches
+	// sampleAccelState(). No offset contribution (constant, zero second
+	// derivative).
+	Eigen::MatrixXd Caccel = Eigen::MatrixXd::Zero(1, sz);
+	for(int i = 0; i < n; i++){
+		double w = kTwoPi * modes_[i].freq_hz;
+		Caccel(0, 2 * i) = -(w * w);
+	}
 
 	Eigen::MatrixXd Q = Eigen::MatrixXd::Identity(sz, sz) * cfg_.process_noise_osc;
 	Q(sz - 1, sz - 1) = cfg_.process_noise_offset;
-	double R = cfg_.measurement_noise;
 
 	// Fixed-point iteration for the steady-state a-priori error covariance P:
 	//   S = C P C^T + R
-	//   K = P C^T / S            (filter-form gain, an intermediate)
+	//   K = P C^T S^-1           (filter-form gain, an intermediate)
 	//   P_next = Psi (P - K C P) Psi^T + Q
-	// then the PREDICTOR-form gain is L = Psi P C^T / S (the extra Psi
+	// then the PREDICTOR-form gain is L = Psi P C^T S^-1 (the extra Psi
 	// reflects eq. 6 producing x_{k+1} directly from x_k, not x_{k|k}).
-	Eigen::MatrixXd P = Q;
-	for(int iter = 0; iter < cfg_.riccati_max_iter; iter++){
-		double S = (C * P * C.transpose())(0, 0) + R;
-		Eigen::MatrixXd K = (P * C.transpose()) / S;
-		Eigen::MatrixXd Pnext = Psi * (P - K * C * P) * Psi.transpose() + Q;
-		Pnext = 0.5 * (Pnext + Pnext.transpose()); // numerical symmetry hygiene
-		double delta = (Pnext - P).norm();
-		P = Pnext;
-		if(delta < cfg_.riccati_tol){
-			break;
+	// Generalizes directly from the original scalar-output derivation:
+	// S/R become 1x1 or 2x2 matrices depending on C's row count, and
+	// division becomes S.inverse() -- identical math, just not restricted
+	// to a single output.
+	auto solveSteadyStateGain = [&](const Eigen::MatrixXd& C, const Eigen::MatrixXd& R) {
+		Eigen::MatrixXd P = Q;
+		for(int iter = 0; iter < cfg_.riccati_max_iter; iter++){
+			Eigen::MatrixXd S = C * P * C.transpose() + R;
+			Eigen::MatrixXd K = P * C.transpose() * S.inverse();
+			Eigen::MatrixXd Pnext = Psi * (P - K * C * P) * Psi.transpose() + Q;
+			Pnext = 0.5 * (Pnext + Pnext.transpose()); // numerical symmetry hygiene
+			double delta = (Pnext - P).norm();
+			P = Pnext;
+			if(delta < cfg_.riccati_tol){
+				break;
+			}
 		}
-	}
-	double S = (C * P * C.transpose())(0, 0) + R;
-	gainL_ = (Psi * P * C.transpose()) / S;
+		Eigen::MatrixXd S = C * P * C.transpose() + R;
+		return Psi * P * C.transpose() * S.inverse();
+	};
+
+	Eigen::MatrixXd Rpos(1, 1);
+	Rpos(0, 0) = cfg_.measurement_noise_pos;
+	gainLPosOnly_ = solveSteadyStateGain(Cpos, Rpos).col(0);
+
+	Eigen::MatrixXd Cjoint(2, sz);
+	Cjoint.row(0) = Cpos.row(0);
+	Cjoint.row(1) = Caccel.row(0);
+	Eigen::MatrixXd Rjoint = Eigen::MatrixXd::Zero(2, 2);
+	Rjoint(0, 0) = cfg_.measurement_noise_pos;
+	Rjoint(1, 1) = cfg_.measurement_noise_accel;
+	gainL_ = solveSteadyStateGain(Cjoint, Rjoint);
 }
 
 // ---------------------------------------------------------------------------

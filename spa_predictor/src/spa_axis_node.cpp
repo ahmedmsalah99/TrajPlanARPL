@@ -13,6 +13,13 @@
 // different axes share frequencies, which is correct (e.g. heave and sway
 // can genuinely be driven at different rates).
 //
+// Also feeds SpaPredictor a per-sample ACCELERATION measurement (one
+// finite difference of VehicleOdometry.velocity[axis_], via velToAccel_)
+// alongside position -- a genuine second Kalman correction channel (see
+// spa_predictor.h's class comment), not a prediction-time output. NaN
+// (velToAccel_'s sentinel) until the first velocity sample has something
+// to difference against.
+//
 // Deliberately standalone -- not wired into ros_traj_gen_utils' traj_exe
 // yet, and deliberately in its own package (not ros_traj_gen_utils) so the
 // predictor stays reusable/testable independent of the planner. This is
@@ -25,6 +32,8 @@
 #include <px4_msgs/msg/vehicle_odometry.hpp>
 #include <spa_predictor/msg/spa_prediction.hpp>
 #include <spa_predictor/spa_predictor.h>
+#include <spa_predictor/finite_difference.h>
+#include <limits>
 #include <memory>
 #include <vector>
 #include <string>
@@ -74,7 +83,8 @@ public:
 		declare_parameter("max_modes", cfg.max_modes);
 		declare_parameter("process_noise_osc", cfg.process_noise_osc);
 		declare_parameter("process_noise_offset", cfg.process_noise_offset);
-		declare_parameter("measurement_noise", cfg.measurement_noise);
+		declare_parameter("measurement_noise_pos", cfg.measurement_noise_pos);
+		declare_parameter("measurement_noise_accel", cfg.measurement_noise_accel);
 		declare_parameter("nominal_dt_s", cfg.nominal_dt);
 		declare_parameter("sigma_max_horizon_s", cfg.sigma_max_horizon);
 		declare_parameter("sigma_bin_s", cfg.sigma_bin_s);
@@ -87,7 +97,8 @@ public:
 		cfg.max_modes = static_cast<int>(get_parameter("max_modes").as_int());
 		cfg.process_noise_osc = get_parameter("process_noise_osc").as_double();
 		cfg.process_noise_offset = get_parameter("process_noise_offset").as_double();
-		cfg.measurement_noise = get_parameter("measurement_noise").as_double();
+		cfg.measurement_noise_pos = get_parameter("measurement_noise_pos").as_double();
+		cfg.measurement_noise_accel = get_parameter("measurement_noise_accel").as_double();
 		cfg.nominal_dt = get_parameter("nominal_dt_s").as_double();
 		cfg.sigma_max_horizon = get_parameter("sigma_max_horizon_s").as_double();
 		cfg.sigma_bin_s = get_parameter("sigma_bin_s").as_double();
@@ -132,7 +143,18 @@ private:
 		// convention this whole repo uses throughout (TrajBase/QPpolyTraj/
 		// apriltag_utils are all NED-native).
 		double value = static_cast<double>(msg->position[axis_]);
-		predictor_->addMeasurement(t, value);
+
+		// Acceleration for the ESTIMATOR (not exposed in predictions -- see
+		// spa_predictor.h's class comment): one finite difference of the
+		// ALREADY-MEASURED velocity (VehicleOdometry.velocity[axis_]), not a
+		// second difference of position -- avoids compounding two
+		// differentiation noise amplifications. NaN (velToAccel_'s pre-set
+		// sentinel) on the first sample, when no previous velocity exists
+		// yet to difference against.
+		double accel = std::numeric_limits<double>::quiet_NaN();
+		velToAccel_.Update(t, static_cast<double>(msg->velocity[axis_]), &accel);
+
+		predictor_->addMeasurement(t, value, accel);
 	}
 
 	void onTimer()
@@ -177,6 +199,7 @@ private:
 
 	int axis_ = 2;
 	std::unique_ptr<SpaPredictor> predictor_;
+	FiniteDifference velToAccel_;
 	std::vector<double> horizons_;
 	rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr sub_;
 	rclcpp::Publisher<spa_predictor::msg::SpaPrediction>::SharedPtr pub_;

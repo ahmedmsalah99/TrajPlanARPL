@@ -3,6 +3,7 @@
 #include <Eigen/Eigen>
 #include <vector>
 #include <deque>
+#include <limits>
 
 // Signal Prediction Algorithm (SPA), per Abujoub, McPhee & Irani, "Methodologies
 // for Landing Autonomous Aerial Vehicles on Maritime Vessels" (2020), Sec. 3.1.
@@ -13,12 +14,23 @@
 //      peak-pick up to max_modes dominant frequencies.
 //   2. Estimation (every sample): a bank of harmonic-oscillator states, one
 //      per detected mode, plus a static-offset state, tracked with a steady-
-//      state Kalman predictor (paper eq. 6).
+//      state Kalman predictor (paper eq. 6) -- corrected against the
+//      position/value measurement, and OPTIONALLY, when available, ALSO
+//      against a simultaneous acceleration measurement (a genuine second
+//      channel in the same correction step, not a separate estimator or a
+//      prediction-time convenience -- see addMeasurement()). No new state
+//      is needed for this: a harmonic oscillator's acceleration is already
+//      an exact linear function of its OWN position state
+//      (x1'' = -w^2 x1), so acceleration is just a second row in the
+//      output/measurement matrix.
 //   3. Prediction (on demand, any horizon): closed-form propagation of the
 //      oscillator states -- exact for a sum of sinusoids, so predict() is
 //      smooth and well-defined for any horizon, not just a sample-grid step.
 //      This is the "flexible prediction horizon" property the whole design
-//      exists for.
+//      exists for. Acceleration is NOT exposed here (deliberately out of
+//      scope for now -- estimation only) even though it would cost no more
+//      than velocity did to add, if a use for predicted acceleration shows
+//      up later.
 //
 // No ROS/rclcpp dependency -- feed it (time, value) pairs from whatever
 // source (a ROS subscription callback, a test harness, a log file) via
@@ -77,8 +89,23 @@ public:
 		// slow drift (a moving mean) instead of forcing that drift to alias
 		// into the oscillator modes.
 		double process_noise_offset = 5e-3;
-		// Measurement noise variance (sensor units^2).
-		double measurement_noise = 0.01;
+		// Measurement noise variance for the POSITION/VALUE channel (sensor
+		// units^2) -- renamed from measurement_noise now that a second,
+		// acceleration channel exists below.
+		double measurement_noise_pos = 0.01;
+		// Measurement noise variance for the ACCELERATION channel (sensor
+		// units/s^2, squared), used only on samples where addMeasurement()'s
+		// accel argument is finite. Finite-differencing sharply amplifies
+		// noise (each differentiation stage roughly divides by dt, so
+		// variance scales ~1/dt^2 per stage) -- this default is a starting
+		// point, NOT calibrated to any particular signal. Expect roll/pitch
+		// (which need TWO chained differences, angle->rate->accel, since
+		// there is no directly-measured Euler rate to difference just once)
+		// to need a much larger value than x/y/heave (one difference, from
+		// an already-measured velocity). Tune per signal -- see
+		// spa_axes.launch.py's angular_*/horizontal_*/heave_* grouped
+		// overrides.
+		double measurement_noise_accel = 1.0;
 		// Nominal sample period (s) the steady-state gain is solved for. See
 		// the .cpp's stepEstimator() comment for why a per-sample Riccati
 		// solve isn't done: the same fixed gain is reused for every sample's
@@ -121,7 +148,15 @@ public:
 	// Feed one measurement at absolute time t (seconds, monotonic, caller's
 	// clock). Samples must arrive in non-decreasing t; a sample with
 	// t <= lastMeasurementTime() is dropped (logged via droppedSamples()).
-	void addMeasurement(double t, double value);
+	// accel, if finite (NOT NaN -- the default), is ALSO used to correct
+	// the estimator THIS SAME STEP, via a genuine second measurement
+	// channel (see the class comment), not just something recorded for
+	// prediction. Pass NaN (the default) when no acceleration reading is
+	// available for this particular sample (e.g. a finite-difference chain
+	// still bootstrapping) -- the estimator transparently falls back to
+	// position-only correction for that one sample.
+	void addMeasurement(double t, double value,
+	                     double accel = std::numeric_limits<double>::quiet_NaN());
 
 	// True once at least one mode-detection pass has completed and the
 	// estimator has a state to propagate from. predict()/currentModes() are
@@ -194,8 +229,21 @@ private:
 	// size 2*modes_.size()+1. x_{i,1} = amplitude*sin(theta_i) (the mode's
 	// direct contribution to the signal); x_{i,2} = its time derivative.
 	Eigen::VectorXd state_;
-	Eigen::VectorXd gainL_; // steady-state predictor gain (paper eq. 6's L)
-	std::vector<Mode> modes_; // frequencies this state_/gainL_ were built for
+	// Steady-state predictor gains (paper eq. 6's L), TWO of them since
+	// which one applies depends on whether a given sample has an
+	// acceleration measurement:
+	//   gainL_        -- sz x 2, position+acceleration correction (used
+	//                     when addMeasurement()'s accel is finite)
+	//   gainLPosOnly_ -- sz x 1, position-only correction (used otherwise
+	//                     -- this is the original, single-channel gain,
+	//                     unchanged in derivation from before this class
+	//                     supported acceleration at all)
+	// Both solved from the SAME process model (Psi, Q) in rebuildObserver()
+	// -- only the measurement/output side (C, R) differs between them, so
+	// solving both is just two passes of the same Riccati iteration.
+	Eigen::MatrixXd gainL_;
+	Eigen::VectorXd gainLPosOnly_;
+	std::vector<Mode> modes_; // frequencies this state_/gains were built for
 
 	double xOff() const { return state_.size() > 0 ? state_(state_.size() - 1) : 0.0; }
 
@@ -209,10 +257,14 @@ private:
 
 	// -- estimation --
 	// Advances state_ by dt via the exact closed-form per-block propagation,
-	// then applies gainL_'s correction against `value` (paper eq. 6). If
-	// haveMeasurement is false, propagates only (handles measurement
-	// dropouts without corrupting the state with a fabricated correction).
-	void stepEstimator(double dt, bool haveMeasurement, double value);
+	// then applies a correction against the available measurement(s) (paper
+	// eq. 6): gainL_ (position+acceleration) if haveAccel, gainLPosOnly_
+	// (position only) otherwise. If haveMeasurement is false, propagates
+	// only (handles measurement dropouts without corrupting the state with
+	// a fabricated correction) -- haveAccel/accelValue are meaningless in
+	// that case.
+	void stepEstimator(double dt, bool haveMeasurement, double value,
+	                    bool haveAccel, double accelValue);
 
 	// Exact 2x2 continuous-time state transition for one oscillator block at
 	// angular frequency w, elapsed time dt (see .cpp for the derivation --
@@ -228,6 +280,15 @@ private:
 	// dynamics (see stepEstimator()'s handling of the last entry), so unlike
 	// sampleState() it contributes nothing here.
 	double sampleVelocityState(const Eigen::VectorXd& s) const;
+
+	// Acceleration contribution of state_ at the CURRENT state: sum of each
+	// mode's -w_i^2 * x_{i,1} -- exact for a harmonic oscillator
+	// (x1'' = -w^2 x1), not an approximation. No offset term (constant,
+	// zero second derivative), same reasoning as sampleVelocityState().
+	// Used both for the acceleration measurement's innovation in
+	// stepEstimator() and to build the acceleration output row in
+	// rebuildObserver()'s gain solve.
+	double sampleAccelState(const Eigen::VectorXd& s) const;
 
 	// Propagates a COPY of state_ forward by horizon_s (exact, closed-form,
 	// any real horizon) and returns the full propagated state vector --
