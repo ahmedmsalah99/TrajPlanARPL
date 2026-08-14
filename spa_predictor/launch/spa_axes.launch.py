@@ -40,6 +40,13 @@ TUNABLE_PARAMS = [
     ('max_modes', True),
     ('f_min_hz', False),
     ('f_max_hz', False),
+    # Measurement noise for the estimator's two correction channels (see
+    # SpaPredictor's class comment) -- almost certainly need per-group
+    # tuning: measurement_noise_accel in particular is derived via
+    # finite-differencing (one stage for x/y/heave, two chained stages for
+    # roll/pitch), and each differentiation stage sharply amplifies noise.
+    ('measurement_noise_pos', False),
+    ('measurement_noise_accel', False),
 ]
 
 

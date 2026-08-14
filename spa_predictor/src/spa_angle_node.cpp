@@ -30,6 +30,18 @@
 // column of the rotation matrix built from predicted roll/pitch and a
 // yaw reference), not implemented here.
 //
+// Also feeds SpaPredictor a per-sample ANGULAR ACCELERATION measurement
+// alongside the angle -- a genuine second Kalman correction channel (see
+// spa_predictor.h's class comment), not a prediction-time output. Unlike
+// spa_axis_node.cpp (where velocity is already directly measured, one
+// difference gets acceleration), there is no directly-measured Euler angle
+// rate field here -- VehicleOdometry only carries BODY-frame
+// angular_velocity (wx/wy/wz), which is NOT the Euler roll/pitch rate
+// outside the small-angle/single-axis case (same reasoning as
+// spa_eval_analyze.py's truth-series comment). So this chains TWO
+// FiniteDifference instances: angle -> rate (valueToRate_), then
+// rate -> accel (rateToAccel_).
+//
 // Deliberately standalone -- not wired into ros_traj_gen_utils' traj_exe
 // yet; this is Phase 2 of the SPA rollout (validate against a
 // known/simulated signal before anything consumes its output for real).
@@ -37,7 +49,9 @@
 #include <px4_msgs/msg/vehicle_odometry.hpp>
 #include <spa_predictor/msg/spa_prediction.hpp>
 #include <spa_predictor/spa_predictor.h>
+#include <spa_predictor/finite_difference.h>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <vector>
 #include <string>
@@ -103,7 +117,8 @@ public:
 		declare_parameter("max_modes", cfg.max_modes);
 		declare_parameter("process_noise_osc", cfg.process_noise_osc);
 		declare_parameter("process_noise_offset", cfg.process_noise_offset);
-		declare_parameter("measurement_noise", cfg.measurement_noise);
+		declare_parameter("measurement_noise_pos", cfg.measurement_noise_pos);
+		declare_parameter("measurement_noise_accel", cfg.measurement_noise_accel);
 		declare_parameter("nominal_dt_s", cfg.nominal_dt);
 		declare_parameter("sigma_max_horizon_s", cfg.sigma_max_horizon);
 		declare_parameter("sigma_bin_s", cfg.sigma_bin_s);
@@ -116,7 +131,8 @@ public:
 		cfg.max_modes = static_cast<int>(get_parameter("max_modes").as_int());
 		cfg.process_noise_osc = get_parameter("process_noise_osc").as_double();
 		cfg.process_noise_offset = get_parameter("process_noise_offset").as_double();
-		cfg.measurement_noise = get_parameter("measurement_noise").as_double();
+		cfg.measurement_noise_pos = get_parameter("measurement_noise_pos").as_double();
+		cfg.measurement_noise_accel = get_parameter("measurement_noise_accel").as_double();
 		cfg.nominal_dt = get_parameter("nominal_dt_s").as_double();
 		cfg.sigma_max_horizon = get_parameter("sigma_max_horizon_s").as_double();
 		cfg.sigma_bin_s = get_parameter("sigma_bin_s").as_double();
@@ -161,7 +177,22 @@ private:
 		double roll, pitch;
 		quatToRollPitch(msg->q[0], msg->q[1], msg->q[2], msg->q[3], &roll, &pitch);
 		double value = (angle_ == 0) ? roll : pitch;
-		predictor_->addMeasurement(t, value);
+
+		// Acceleration for the ESTIMATOR (not exposed in predictions -- see
+		// spa_predictor.h's class comment): two CHAINED differences, since
+		// there is no directly-measured Euler rate to difference just once
+		// (see the class comment). rateToAccel_ is only fed a real number
+		// (never NaN) -- feeding it NaN on a bootstrapping sample would
+		// poison its OWN internal last-value state for the next call.
+		double rate = std::numeric_limits<double>::quiet_NaN();
+		valueToRate_.Update(t, value, &rate);
+		double accel = std::numeric_limits<double>::quiet_NaN();
+		if(!std::isnan(rate)){
+			rateToAccel_.Update(t, rate, &accel);
+		}
+		lastAccel_ = accel; // published as-is in onTimer() -- see msg.measured_accel
+
+		predictor_->addMeasurement(t, value, accel);
 	}
 
 	void onTimer()
@@ -182,6 +213,9 @@ private:
 		double filtered = 0.0;
 		predictor_->predict(0.0, &filtered);
 		msg.filtered_value = filtered;
+		// See msg.measured_accel's .msg comment -- the RAW input the
+		// estimator was corrected against (or NaN), not a predicted value.
+		msg.measured_accel = lastAccel_;
 
 		for(const auto& m : predictor_->currentModes()){
 			msg.mode_freq_hz.push_back(m.freq_hz);
@@ -206,6 +240,9 @@ private:
 
 	int angle_ = 0;
 	std::unique_ptr<SpaPredictor> predictor_;
+	FiniteDifference valueToRate_;
+	FiniteDifference rateToAccel_;
+	double lastAccel_ = std::numeric_limits<double>::quiet_NaN();
 	std::vector<double> horizons_;
 	rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr sub_;
 	rclcpp::Publisher<spa_predictor::msg::SpaPrediction>::SharedPtr pub_;
