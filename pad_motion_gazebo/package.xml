@@ -3,7 +3,7 @@
 <package format="3">
   <name>pad_motion_gazebo</name>
   <version>0.0.0</version>
-  <description>gz-sim Model plugin that reads a model's actual Gazebo pose every tick and republishes it as ground-truth px4_msgs/VehicleOdometry -- a passive telemetry bridge, not a motion generator. Used to feed the SPA predictor (spa_predictor package) a known/simulated pad signal, whatever separately drives the pad's motion in Gazebo.</description>
+  <description>gz-sim Model plugin that reads a model's actual Gazebo pose every tick and republishes it as px4_msgs/VehicleOdometry -- a passive telemetry bridge, not a motion generator (whatever separately drives the pad's motion in Gazebo is a separate concern). Optionally adds synthetic sensor noise (position/velocity/attitude/angular velocity, all opt-in, default off) to stand in for a realistic, imperfect measurement rather than exact ground truth. Used to feed the SPA predictor (spa_predictor package) a known/simulated pad signal.</description>
 
   <maintainer email="jeff@todo.todo">jeff</maintainer>
   <license>GPLv3</license>

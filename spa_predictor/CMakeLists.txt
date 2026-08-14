@@ -62,6 +62,16 @@ target_link_libraries(spa_axis_node
   ${cpp_typesupport_target}
 )
 
+# Executable: standalone SPA per-angle predictor node (see
+# spa_angle_node.cpp) -- run one instance per angle (roll/pitch) via its
+# `angle` parameter. Sibling to spa_axis_node above.
+add_executable(spa_angle_node src/spa_angle_node.cpp)
+ament_target_dependencies(spa_angle_node ${dependencies})
+target_link_libraries(spa_angle_node
+  spa_predictor_lib
+  ${cpp_typesupport_target}
+)
+
 install(
   DIRECTORY include/
   DESTINATION include
@@ -76,7 +86,7 @@ install(
 )
 
 install(
-  TARGETS spa_axis_node
+  TARGETS spa_axis_node spa_angle_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
