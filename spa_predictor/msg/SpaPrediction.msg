@@ -25,6 +25,21 @@ float64 made_at_t
 # measurement -- see spa_predictor.h's class comment.
 float64 filtered_value
 
+# The RAW acceleration measurement fed to addMeasurement() alongside the
+# most recent position/angle sample (see spa_predictor.h's class comment
+# on the estimator's second correction channel) -- an INPUT the estimator
+# was corrected against, not a model output (unlike predicted_value/
+# predicted_velocity below; do not confuse the two). NaN whenever no
+# acceleration reading was available for that sample (e.g. still
+# bootstrapping the finite-difference chain -- see
+# spa_axis_node.cpp/spa_angle_node.cpp's FiniteDifference members).
+# Published purely for visibility into what the estimator is actually
+# being corrected against -- this value is derived by finite-differencing
+# an already-noisy measured signal (one differentiation for x/y/heave,
+# two CHAINED differentiations for roll/pitch), so expect it to be
+# considerably noisier than filtered_value/predicted_value.
+float64 measured_accel
+
 # Currently tracked modes (see SpaPredictor::currentModes()), largest
 # amplitude first. Parallel arrays, same length.
 float64[] mode_freq_hz

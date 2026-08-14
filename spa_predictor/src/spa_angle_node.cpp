@@ -190,6 +190,7 @@ private:
 		if(!std::isnan(rate)){
 			rateToAccel_.Update(t, rate, &accel);
 		}
+		lastAccel_ = accel; // published as-is in onTimer() -- see msg.measured_accel
 
 		predictor_->addMeasurement(t, value, accel);
 	}
@@ -212,6 +213,9 @@ private:
 		double filtered = 0.0;
 		predictor_->predict(0.0, &filtered);
 		msg.filtered_value = filtered;
+		// See msg.measured_accel's .msg comment -- the RAW input the
+		// estimator was corrected against (or NaN), not a predicted value.
+		msg.measured_accel = lastAccel_;
 
 		for(const auto& m : predictor_->currentModes()){
 			msg.mode_freq_hz.push_back(m.freq_hz);
@@ -238,6 +242,7 @@ private:
 	std::unique_ptr<SpaPredictor> predictor_;
 	FiniteDifference valueToRate_;
 	FiniteDifference rateToAccel_;
+	double lastAccel_ = std::numeric_limits<double>::quiet_NaN();
 	std::vector<double> horizons_;
 	rclcpp::Subscription<px4_msgs::msg::VehicleOdometry>::SharedPtr sub_;
 	rclcpp::Publisher<spa_predictor::msg::SpaPrediction>::SharedPtr pub_;

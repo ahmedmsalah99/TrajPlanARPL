@@ -129,11 +129,12 @@ independent velocity measurement to check a velocity prediction against.
 
 Don't confuse this with the acceleration MEASUREMENT channel above --
 they're unrelated. `predicted_velocity` is a model OUTPUT (the estimator's
-own velocity state, sampled at a horizon); the acceleration fed to
-`addMeasurement()` is a model INPUT (an external reading used to correct
-the SAME position-only state the model already had). Neither node
-currently exposes a `predicted_acceleration` output -- deliberately out of
-scope for now, see `spa_predictor.h`'s class comment.
+own velocity state, sampled at a horizon); `measured_accel` (published for
+visibility -- see its `.msg` comment) is a model INPUT, the raw reading
+used to correct the SAME position-only state the model already had, NOT a
+prediction. Neither node exposes a `predicted_acceleration` OUTPUT --
+deliberately out of scope for now, see `spa_predictor.h`'s class comment.
+`measured_accel` is logged as its own column by `spa_eval_logger.py`.
 
 ## Offline accuracy evaluation
 
