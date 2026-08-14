@@ -51,7 +51,14 @@ class SpaEvalLogger(Node):
         self.declare_parameter('x_topic', '/pad/spa/x_prediction')
         self.declare_parameter('y_topic', '/pad/spa/y_prediction')
         self.declare_parameter('heave_topic', '/pad/spa/heave_prediction')
-        self.declare_parameter('output_dir', '.')
+        # Fixed default (not CWD-relative) so this node's default output
+        # location and spa_eval_analyze.py's default input location always
+        # agree regardless of where either is invoked from (ros2 launch vs.
+        # a plain `python3 scripts/spa_eval_analyze.py` from the source
+        # tree). Each run overwrites the previous one's CSVs -- by design,
+        # not a bug: this is a diagnostic tool for the CURRENT run, not a
+        # historical log.
+        self.declare_parameter('output_dir', '/tmp/spa_eval')
         self.declare_parameter('truth_csv_name', 'pad_truth.csv')
         self.declare_parameter('predictions_csv_name', 'spa_predictions.csv')
 

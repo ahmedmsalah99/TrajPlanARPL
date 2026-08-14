@@ -85,14 +85,17 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
-# Diagnostic-only Python tools (CSV logger + offline evaluation/plotting --
-# see the scripts' own docstrings). Installed as PROGRAMS rather than
-# converting this ament_cmake package to ament_python, so both are runnable
-# via `ros2 run spa_predictor <script>.py`.
+# Diagnostic-only CSV logger (see its own docstring). Installed as a
+# PROGRAM rather than converting this ament_cmake package to ament_python,
+# so it's runnable via `ros2 run`/launchable via spa_axes.launch.py like
+# any other node. spa_eval_analyze.py (the offline plotting/stats half)
+# is DELIBERATELY NOT installed here -- it's not a ROS node, has no need
+# to be found via the ament index, and is meant to be run straight from
+# the source tree (scripts/spa_eval_analyze.py), not a colcon install
+# path.
 install(
   PROGRAMS
     scripts/spa_eval_logger.py
-    scripts/spa_eval_analyze.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

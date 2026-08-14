@@ -86,40 +86,42 @@ independent velocity measurement to check a velocity prediction against.
 
 ## Offline accuracy evaluation
 
-Two diagnostic-only scripts (`scripts/`, not part of the C++ library/node
+Two diagnostic-only tools (`scripts/`, not part of the C++ library/node
 above), for measuring prediction accuracy vs. horizon precisely rather than
 by eye off a live plot:
 
 - `spa_eval_logger.py`: a small rclpy node that records ground-truth pad
   odometry and every `SpaPrediction` message to two CSVs (`pad_truth.csv`,
-  `spa_predictions.csv`), the latter already carrying `t_target = made_at_t
-  + horizon_s` per horizon -- the "shift" that lines a prediction up in
-  time with the ground-truth sample it was actually about.
-- `spa_eval_analyze.py`: a pure-Python (no ROS dependency) offline script
-  that loads those two CSVs, interpolates ground truth at each `t_target`,
-  and reports mean/median/RMSE/max error per horizon, plus three plots per
+  `spa_predictions.csv`) under `/tmp/spa_eval` by default (each run
+  overwrites the last -- by design, not a bug: this is diagnostic data for
+  the current run, not a history). `spa_predictions.csv` already carries
+  `t_target = made_at_t + horizon_s` per horizon -- the "shift" that lines
+  a prediction up in time with the ground-truth sample it was actually
+  about. **Launched automatically by `spa_axes.launch.py`** -- no separate
+  step needed.
+- `spa_eval_analyze.py`: a pure-Python (no ROS dependency), NOT ROS-installed
+  script -- run it straight from the source tree, not via `ros2 run`. It
+  loads the two CSVs, interpolates ground truth at each `t_target`, and
+  reports mean/median/RMSE/max error per horizon, plus three plots per
   axis: shifted predictions overlaid on ground truth, error over time, and
   error-vs-horizon (the direct, precise answer to "does accuracy degrade
   with horizon, and by how much").
 
 ```bash
-# Terminal 1: bring up the predictor(s) as usual
+# Brings up the predictor(s) AND the CSV logger together:
 ros2 launch spa_predictor spa_axes.launch.py
+# ... Ctrl-C once you have enough data ...
 
-# Terminal 2: record data (Ctrl-C once you have enough)
-ros2 run spa_predictor spa_eval_logger.py --ros-args -p output_dir:=/tmp/spa_eval
-
-# Afterwards: analyze (needs pandas/numpy/matplotlib -- pip install if missing)
-python3 install/spa_predictor/lib/spa_predictor/spa_eval_analyze.py \
-  --truth /tmp/spa_eval/pad_truth.csv \
-  --predictions /tmp/spa_eval/spa_predictions.csv \
-  --out-dir /tmp/spa_eval/plots
+# Analyze (needs pandas/numpy/matplotlib -- pip install if missing). No
+# args needed -- defaults to /tmp/spa_eval, matching the logger's default:
+python3 spa_predictor/scripts/spa_eval_analyze.py
 ```
 
 `spa_eval_analyze.py`'s `--axis` defaults to `all` (x, y, heave); pass
 `--show` to also open interactive plot windows instead of only saving
-PNGs. See each script's own docstring for the full CSV schema and every
-CLI option.
+PNGs; `--truth`/`--predictions`/`--out-dir` override the `/tmp/spa_eval`
+default paths. See each script's own docstring for the full CSV schema and
+every CLI/parameter option.
 
 ## Known limitation
 

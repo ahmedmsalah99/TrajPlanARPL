@@ -16,16 +16,12 @@
   <depend>px4_msgs</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
-  <!-- spa_eval_logger.py -->
+  <!-- spa_eval_logger.py, the only Python installed by this package (a ROS
+       node; see CMakeLists.txt). spa_eval_analyze.py is NOT installed
+       (run straight from scripts/), so its pandas/numpy/matplotlib
+       dependency is deliberately not declared here; see its own
+       docstring for that pip install requirement instead. -->
   <exec_depend>rclpy</exec_depend>
-  <!-- spa_eval_analyze.py: offline-only, not needed to build/run the C++
-       nodes; not universally available via rosdep on every platform, but
-       declared here since these are exactly the Python packages that
-       script needs (pip install pandas numpy matplotlib if rosdep can't
-       resolve them on your platform). -->
-  <exec_depend>python3-pandas</exec_depend>
-  <exec_depend>python3-numpy</exec_depend>
-  <exec_depend>python3-matplotlib</exec_depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>
 

@@ -23,9 +23,15 @@ against a clamped/extrapolated non-value.
 Requires pandas, numpy, matplotlib -- not ROS dependencies, pip install if
 missing: pip install pandas numpy matplotlib
 
+Not a ROS node/executable -- just run it directly from the source tree
+(not installed by CMake, see CMakeLists.txt's comment on that).
+
 Usage:
-  python3 spa_eval_analyze.py --truth pad_truth.csv --predictions spa_predictions.csv
-  python3 spa_eval_analyze.py --axis heave --out-dir ./eval_plots --show
+  # No args needed if spa_eval_logger.py was run with its own defaults --
+  # both default to /tmp/spa_eval:
+  python3 spa_eval_analyze.py
+  python3 spa_eval_analyze.py --axis heave --show
+  python3 spa_eval_analyze.py --truth /path/pad_truth.csv --predictions /path/spa_predictions.csv
 """
 import argparse
 import os
@@ -184,12 +190,16 @@ def run_axis(axis, truth, predictions, out_dir, show):
 
 
 def main():
+    # Defaults match spa_eval_logger.py's own default output_dir
+    # (/tmp/spa_eval) -- not CWD-relative, so running this script with no
+    # args works regardless of which directory it's invoked from.
+    default_dir = '/tmp/spa_eval'
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--truth', default='pad_truth.csv')
-    parser.add_argument('--predictions', default='spa_predictions.csv')
+    parser.add_argument('--truth', default=os.path.join(default_dir, 'pad_truth.csv'))
+    parser.add_argument('--predictions', default=os.path.join(default_dir, 'spa_predictions.csv'))
     parser.add_argument('--axis', choices=['x', 'y', 'heave', 'all'], default='all')
-    parser.add_argument('--out-dir', default='.')
+    parser.add_argument('--out-dir', default=os.path.join(default_dir, 'plots'))
     parser.add_argument('--show', action='store_true',
                          help='also open interactive plot windows (default: save PNGs only)')
     args = parser.parse_args()
