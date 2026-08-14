@@ -472,7 +472,23 @@ void SpaPredictor::rebuildObserver(const std::vector<Mode>& newModes)
 	// S/R become 1x1 or 2x2 matrices depending on C's row count, and
 	// division becomes S.inverse() -- identical math, just not restricted
 	// to a single output.
-	auto solveSteadyStateGain = [&](const Eigen::MatrixXd& C, const Eigen::MatrixXd& R) {
+	// NOTE the explicit `-> Eigen::MatrixXd` trailing return type below --
+	// REQUIRED, not stylistic. Without it, the lambda's return type is
+	// deduced from `Psi * P * C.transpose() * S.inverse()`'s Eigen
+	// EXPRESSION-TEMPLATE type (a lazy object holding references into P/S,
+	// this lambda's OWN locals) rather than a concrete Eigen::MatrixXd.
+	// That expression object outlives P/S (both destroyed when the lambda
+	// returns), so the caller evaluates it against dangling memory --
+	// undefined behavior that manifested in the field as std::bad_alloc
+	// (and, in a release build, a plain segfault) on EVERY node, on
+	// essentially the first call (this lambda runs from the very first
+	// addMeasurement(), not just after mode detection). Confirmed via an
+	// isolated repro of just this function's math: crashes with `auto`,
+	// works identically with `-> Eigen::MatrixXd` forcing evaluation at
+	// the return statement. This is the well-known "auto + Eigen
+	// expression templates" pitfall (Eigen's own FAQ warns against
+	// `auto` for anything that isn't a plain, already-evaluated type).
+	auto solveSteadyStateGain = [&](const Eigen::MatrixXd& C, const Eigen::MatrixXd& R) -> Eigen::MatrixXd {
 		Eigen::MatrixXd P = Q;
 		for(int iter = 0; iter < cfg_.riccati_max_iter; iter++){
 			Eigen::MatrixXd S = C * P * C.transpose() + R;
