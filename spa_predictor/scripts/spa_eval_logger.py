@@ -1,29 +1,32 @@
 #!/usr/bin/env python3
 """Diagnostic logger: records pad ground-truth odometry and SPA predictions
-to CSV, for OFFLINE evaluation (see spa_eval_analyze.py) of prediction
-accuracy vs. horizon. The online sigma_s self-assessment already tracks
-something similar, but only as a per-horizon-bin EWMA; this keeps every
-raw sample so error can be recomputed, re-binned, and plotted flexibly
-after the fact -- and cross-checked against sigma_s, which it should agree
-with roughly if both are working correctly.
+(all five signals -- x, y, heave, roll, pitch) to CSV, for OFFLINE
+evaluation (see spa_eval_analyze.py) of prediction accuracy vs. horizon.
+The online sigma_s self-assessment already tracks something similar, but
+only as a per-horizon-bin EWMA; this keeps every raw sample so error can be
+recomputed, re-binned, and plotted flexibly after the fact -- and
+cross-checked against sigma_s, which it should agree with roughly if both
+are working correctly.
 
-Writes two files into --output_dir (default: current directory):
+Writes two files into --output_dir (default: /tmp/spa_eval, overwritten
+every run -- this is diagnostic data for the CURRENT run, not a history):
   pad_truth.csv        -- one row per VehicleOdometry message (ground truth)
   spa_predictions.csv  -- one row per (SpaPrediction message, horizon)
-                           pair, "long" format, with t_target = made_at_t +
-                           horizon_s already computed -- this is the
-                           "shift" that lines a prediction up in time with
-                           the ground-truth sample it was actually about.
-                           Uses made_at_t (see SpaPrediction.msg), NOT
-                           header.stamp -- the two are different clocks in
-                           general (made_at_t is derived from the same PX4
-                           timestamps addMeasurement() was fed; header.stamp
-                           is ROS time at publish).
+                           pair, "long" format (an `axis` column tags which
+                           of x/y/heave/roll/pitch each row is), with
+                           t_target = made_at_t + horizon_s already
+                           computed -- this is the "shift" that lines a
+                           prediction up in time with the ground-truth
+                           sample it was actually about. Uses made_at_t
+                           (see SpaPrediction.msg), NOT header.stamp -- the
+                           two are different clocks in general (made_at_t
+                           is derived from the same PX4 timestamps
+                           addMeasurement() was fed; header.stamp is ROS
+                           time at publish).
 
-Run alongside spa_axes.launch.py (or a single spa_axis_node), e.g.:
-  ros2 run spa_predictor spa_eval_logger.py --ros-args -p output_dir:=/tmp/spa_eval
-Stop with Ctrl-C once enough data has been collected, then run
-spa_eval_analyze.py on the two CSVs this produces.
+Launched automatically by spa_axes.launch.py -- normally no need to run
+this by hand. Stop with Ctrl-C once enough data has been collected, then
+run spa_eval_analyze.py on the two CSVs this produces.
 """
 import csv
 import os
@@ -51,6 +54,8 @@ class SpaEvalLogger(Node):
         self.declare_parameter('x_topic', '/pad/spa/x_prediction')
         self.declare_parameter('y_topic', '/pad/spa/y_prediction')
         self.declare_parameter('heave_topic', '/pad/spa/heave_prediction')
+        self.declare_parameter('roll_topic', '/pad/spa/roll_prediction')
+        self.declare_parameter('pitch_topic', '/pad/spa/pitch_prediction')
         # Fixed default (not CWD-relative) so this node's default output
         # location and spa_eval_analyze.py's default input location always
         # agree regardless of where either is invoked from (ros2 launch vs.
@@ -92,10 +97,12 @@ class SpaEvalLogger(Node):
         self.create_subscription(VehicleOdometry, truth_topic, self._on_truth, px4_qos)
 
         # SpaPrediction publishers use the default (reliable, depth-10) QoS
-        # (spa_axis_node.cpp: create_publisher<SpaPrediction>(topic, 10)) --
-        # match it here, not best-effort, or a QoS mismatch can silently
-        # drop messages from a reliable publisher.
-        for axis, param in (('x', 'x_topic'), ('y', 'y_topic'), ('heave', 'heave_topic')):
+        # (spa_axis_node.cpp/spa_angle_node.cpp:
+        # create_publisher<SpaPrediction>(topic, 10)) -- match it here, not
+        # best-effort, or a QoS mismatch can silently drop messages from a
+        # reliable publisher.
+        for axis, param in (('x', 'x_topic'), ('y', 'y_topic'), ('heave', 'heave_topic'),
+                             ('roll', 'roll_topic'), ('pitch', 'pitch_topic')):
             topic = self.get_parameter(param).value
             self.create_subscription(
                 SpaPrediction, topic,

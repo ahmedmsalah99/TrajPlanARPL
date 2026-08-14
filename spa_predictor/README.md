@@ -19,9 +19,20 @@ North/East/Down, i.e. x/y/heave) and publishes `spa_predictor/SpaPrediction`
 (predictions + self-assessment). Run one instance per axis you want
 predicted -- e.g. three instances (axis 0, 1, 2) for a pad that translates
 in x/y as well as heaving, each with its own independent mode detection
-(no assumption that different axes share frequencies). Roll/pitch
-predictors (separate SpaPredictor instances over angle, not position) are
-a planned follow-up once this is validated.
+(no assumption that different axes share frequencies).
+
+`spa_angle_node` is the sibling for tilt: wraps `SpaPredictor` around roll
+or pitch (selected via the `angle` parameter: 0/1 -> roll/pitch), extracted
+from `VehicleOdometry.q` (aerospace ZYX/NED-FRD convention -- see
+`spa_angle_node.cpp`'s `quatToRollPitch()`). `predicted_velocity` here is
+the predicted angular RATE at each horizon, from the same
+free-with-`predictWithVelocity()` mechanism as linear velocity. Predicts
+Euler roll/pitch, not the surface-normal components (`s3x`/`s3y`) that
+`TrajBase::calcPerchCond()` actually consumes -- the two agree to within
+~1% below this system's perch tilt ceiling (~10-25 deg), and Euler angles
+are simpler to interpret/verify for this validation step; reconstructing
+`s3` from predicted roll/pitch is a well-defined follow-up when wiring this
+into `calcPerchCond()`, not implemented here.
 
 Deliberately standalone -- not linked into `ros_traj_gen_utils`' `traj_exe`
 yet; this is Phase 2 of the SPA rollout (validate against a known/simulated
@@ -33,38 +44,48 @@ signal before anything consumes its output for real).
 colcon build --packages-select spa_predictor
 source install/setup.bash
 
-# All three axes (x, y, heave) at once, recommended:
+# All five signals (x, y, heave, roll, pitch) + the CSV logger, recommended:
 ros2 launch spa_predictor spa_axes.launch.py
 # Override the shared input source (default: pad_motion_gazebo's topic):
 ros2 launch spa_predictor spa_axes.launch.py input_topic:=/some/other/vehicle_odometry
-# Tune mode-detection GROUPED as horizontal (x+y) vs heave, rather than per
-# axis -- x/y and heave are different physical dynamics; x and y haven't
-# shown a need to differ from each other. Any TUNABLE_PARAMS entry left
-# unset keeps spa_axis_node's own Config default (see spa_predictor.h).
-ros2 launch spa_predictor spa_axes.launch.py horizontal_peak_sensitivity:=0.08 heave_t_fft_s:=15.0
+# Tune mode-detection GROUPED as horizontal (x+y) / heave / angular
+# (roll+pitch), rather than per-signal -- see the launch file's own header
+# comment for why. Any TUNABLE_PARAMS entry left unset keeps that node's
+# own Config default (see spa_predictor.h).
+ros2 launch spa_predictor spa_axes.launch.py horizontal_peak_sensitivity:=0.08 heave_t_fft_s:=15.0 angular_max_modes:=6
 
-# Or run a single axis by hand:
+# Or run a single node by hand:
 ros2 run spa_predictor spa_axis_node                                    # heave (axis=2, default)
 ros2 run spa_predictor spa_axis_node --ros-args -p axis:=0              # x/North
 ros2 run spa_predictor spa_axis_node --ros-args -p axis:=1              # y/East
+ros2 run spa_predictor spa_angle_node                                   # roll (angle=0, default)
+ros2 run spa_predictor spa_angle_node --ros-args -p angle:=1            # pitch
 ```
 
-Feed it a position source -- see the `pad_motion_gazebo` package for a
-simulated one (ground-truth pad pose via a gz-sim plugin), or point
-`input_topic` at a real vision-derived source once available. All three
-instances above read the SAME `input_topic` by default (each just looks at
-a different `position[]` index), and each defaults its `output_topic` from
-`axis` (`/pad/spa/x_prediction`, `/pad/spa/y_prediction`,
-`/pad/spa/heave_prediction`) so running multiple instances doesn't collide
-without extra flags.
+Feed it a position/attitude source -- see the `pad_motion_gazebo` package
+for a simulated one (ground-truth pad pose via a gz-sim plugin, optionally
+with synthetic sensor noise -- see its `PadMotionPlugin.cc`'s class
+comment for the `position_noise_std`/`velocity_noise_std`/
+`attitude_noise_std`/`angular_velocity_noise_std`/`noise_seed` SDF
+parameters), or point `input_topic` at a real vision-derived source once
+available. All five instances above read the SAME `input_topic` by
+default, and each defaults its `output_topic` from its own axis/angle
+selector (`/pad/spa/x_prediction`, `.../y_prediction`,
+`.../heave_prediction`, `.../roll_prediction`, `.../pitch_prediction`) so
+running multiple instances doesn't collide without extra flags.
 
-## Parameters (spa_axis_node)
+## Parameters (spa_axis_node / spa_angle_node)
+
+Both nodes share the same `SpaPredictor::Config`-derived parameters below
+(`publish_rate_hz` onward) -- they only differ in how the input signal is
+selected and what it's called:
 
 | Param | Default | Meaning |
 |---|---|---|
-| `axis` | `2` | which NED position component to predict: 0=x/North, 1=y/East, 2=heave/Down |
-| `input_topic` | `/pad/fmu/out/vehicle_odometry` | `px4_msgs/VehicleOdometry` source; `position[axis]` is used |
-| `output_topic` | `/pad/spa/<x\|y\|heave>_prediction` | `spa_predictor/SpaPrediction`, defaulted from `axis` |
+| `axis` (spa_axis_node only) | `2` | which NED position component to predict: 0=x/North, 1=y/East, 2=heave/Down |
+| `angle` (spa_angle_node only) | `0` | which attitude component to predict: 0=roll, 1=pitch |
+| `input_topic` | `/pad/fmu/out/vehicle_odometry` | `px4_msgs/VehicleOdometry` source; `position[axis]` (spa_axis_node) or `q` (roll/pitch extracted, spa_angle_node) is used |
+| `output_topic` | `/pad/spa/<x\|y\|heave\|roll\|pitch>_prediction` | `spa_predictor/SpaPrediction`, defaulted from `axis`/`angle` |
 | `publish_rate_hz` | `10.0` | how often predictions are computed/published |
 | `horizons_s` | `[0, 0.5, 1, 1.5, 2, 3, 4, 5]` | horizons requested each cycle; also what `sigma_s` is assessed at |
 | `t_fft_s` | `25.0` | mode-detection window; must span several periods of the slowest mode |
@@ -117,11 +138,11 @@ ros2 launch spa_predictor spa_axes.launch.py
 python3 spa_predictor/scripts/spa_eval_analyze.py
 ```
 
-`spa_eval_analyze.py`'s `--axis` defaults to `all` (x, y, heave); pass
-`--show` to also open interactive plot windows instead of only saving
-PNGs; `--truth`/`--predictions`/`--out-dir` override the `/tmp/spa_eval`
-default paths. See each script's own docstring for the full CSV schema and
-every CLI/parameter option.
+`spa_eval_analyze.py`'s `--axis` defaults to `all` (x, y, heave, roll,
+pitch); pass `--show` to also open interactive plot windows instead of
+only saving PNGs; `--truth`/`--predictions`/`--out-dir` override the
+`/tmp/spa_eval` default paths. See each script's own docstring for the
+full CSV schema and every CLI/parameter option.
 
 ## Known limitation
 

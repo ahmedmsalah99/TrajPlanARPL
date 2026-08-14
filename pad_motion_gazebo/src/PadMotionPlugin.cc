@@ -3,16 +3,23 @@
 // ground truth, the same message type/convention this repo's drone
 // odometry already flows through (traj_manager.cpp, dummy_publisher.py) --
 // so any downstream consumer (starting with spa_predictor's
-// spa_axis_node) needs zero new parsing code.
+// spa_axis_node/spa_angle_node) needs zero new parsing code.
 //
 // Deliberately a passive telemetry bridge, not a motion generator: this
 // plugin does not drive, script, or otherwise decide how the pad moves --
 // whatever does that (physics, a joint controller, a separate driving
 // plugin, manual/GUI manipulation, ...) is a wholly separate concern, and
-// this plugin has no configuration of its own. Its only job is "read
+// this plugin has NO motion configuration of its own. Its job is "read
 // Gazebo's ground truth for this model, publish it as if a real PX4 device
 // reported it" -- the same role PX4's own gz_bridge plays for the vehicle
 // itself.
+//
+// It DOES accept optional, narrowly-scoped SENSOR-NOISE configuration (see
+// publishOdometry()) -- a different thing from motion configuration: it
+// models a real sensor's imperfection on top of whatever the model is
+// actually doing, it doesn't decide or influence that motion at all. All
+// noise parameters default to 0 (no noise), reproducing the original
+// exact-ground-truth behavior unless explicitly opted into.
 //
 // This targets gz-sim's Harmonic-era API (`gz::` namespace, GZ_ADD_PLUGIN).
 // Fortress (Ignition-branded) users need the `ignition::gazebo` namespace
@@ -49,6 +56,7 @@
 #include <chrono>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <string>
 
 namespace pad_motion
@@ -61,7 +69,7 @@ class PadMotionPlugin :
 {
 public:
 	void Configure(const gz::sim::Entity& entity,
-	               const std::shared_ptr<const sdf::Element>& /*sdf*/,
+	               const std::shared_ptr<const sdf::Element>& sdf,
 	               gz::sim::EntityComponentManager& ecm,
 	               gz::sim::EventManager& /*eventMgr*/) override
 	{
@@ -72,6 +80,24 @@ public:
 			          << std::endl;
 			valid_ = false;
 			return;
+		}
+
+		// Optional synthetic sensor noise -- see publishOdometry()'s comment
+		// for the model and why it's applied there, not here. All default to
+		// 0.0 (no noise, exact ground truth), so existing worlds that don't
+		// set these are completely unaffected.
+		positionNoiseStd_ = sdf->Get<double>("position_noise_std", 0.0);
+		velocityNoiseStd_ = sdf->Get<double>("velocity_noise_std", 0.0);
+		attitudeNoiseStd_ = sdf->Get<double>("attitude_noise_std", 0.0);
+		angularVelocityNoiseStd_ = sdf->Get<double>("angular_velocity_noise_std", 0.0);
+		// >=0: reproducible noise (e.g. comparing two SPA tuning runs
+		// apples-to-apples). <0 (default): a real random seed each run.
+		int seed = sdf->Get<int>("noise_seed", -1);
+		if(seed >= 0){
+			rng_.seed(static_cast<unsigned int>(seed));
+		}
+		else{
+			rng_.seed(std::random_device{}());
 		}
 
 		if(!rclcpp::ok()){
@@ -90,10 +116,18 @@ public:
 			"/pad/fmu/out/vehicle_odometry", qos);
 
 		valid_ = true;
+		bool anyNoise = positionNoiseStd_ > 0.0 || velocityNoiseStd_ > 0.0 ||
+		                attitudeNoiseStd_ > 0.0 || angularVelocityNoiseStd_ > 0.0;
 		std::cout << "[PadMotionPlugin] configured for model '" << modelName
 		          << "' -- reading its actual Gazebo pose every tick and "
 		          << "republishing as GROUND-TRUTH VehicleOdometry (NED/FRD, "
-		          << "full pose + linear/angular velocity)." << std::endl;
+		          << "full pose + linear/angular velocity)";
+		if(anyNoise){
+			std::cout << ", with synthetic sensor noise (std: pos=" << positionNoiseStd_
+			          << "m, vel=" << velocityNoiseStd_ << "m/s, att=" << attitudeNoiseStd_
+			          << "rad, angvel=" << angularVelocityNoiseStd_ << "rad/s)";
+		}
+		std::cout << "." << std::endl;
 	}
 
 	void PreUpdate(const gz::sim::UpdateInfo& info, gz::sim::EntityComponentManager& ecm) override
@@ -189,20 +223,64 @@ private:
 		// same remap kFrdFluQ performs on a vector.
 		gz::math::Vector3d angVelFrd(angVelFlu.X(), -angVelFlu.Y(), -angVelFlu.Z());
 
+		gz::math::Vector3d posNed(poseEnu.Pos().Y(), poseEnu.Pos().X(), -poseEnu.Pos().Z());
+		gz::math::Vector3d velNed(velEnu.Y(), velEnu.X(), -velEnu.Z());
+
+		// -- optional synthetic sensor noise, applied AFTER the NED/FRD
+		// conversion above (equivalent to applying it before, for isotropic
+		// per-component Gaussian noise, since ENU<->NED/FLU<->FRD are fixed
+		// rotations -- rotating rotationally-symmetric noise leaves its
+		// distribution unchanged; applying it here is just less code). Zero-
+		// mean, i.i.d. per component/sample; all four std parameters default
+		// to 0 (no noise, exact ground truth -- the plugin's original
+		// behavior). This lets the SAME plugin also stand in for a
+		// realistic, imperfect vision/IMU pad-state measurement (e.g. to
+		// test the SPA predictor's robustness/tuning against noise), not
+		// just noiseless ground truth. First-order model only: independent
+		// white noise per component, no bias/drift/cross-axis correlation --
+		// real sensor noise usually isn't this simple; good enough for "does
+		// the predictor's smoothing actually help", not a sensor
+		// characterization.
+		if(positionNoiseStd_ > 0.0){
+			std::normal_distribution<double> d(0.0, positionNoiseStd_);
+			posNed += gz::math::Vector3d(d(rng_), d(rng_), d(rng_));
+		}
+		if(velocityNoiseStd_ > 0.0){
+			std::normal_distribution<double> d(0.0, velocityNoiseStd_);
+			velNed += gz::math::Vector3d(d(rng_), d(rng_), d(rng_));
+		}
+		if(attitudeNoiseStd_ > 0.0){
+			// Small-angle perturbation COMPOSED in the body frame
+			// (q_noisy = q_true * dq), NOT additive noise on raw quaternion
+			// components -- that would break the unit-norm constraint and
+			// produce an invalid rotation. dq is the standard small-angle
+			// quaternion for a random body-frame rotation vector
+			// delta ~ N(0, attitudeNoiseStd_^2 I):
+			// dq = normalize(1, delta.x/2, delta.y/2, delta.z/2).
+			std::normal_distribution<double> d(0.0, attitudeNoiseStd_);
+			gz::math::Quaterniond dq(1.0, 0.5 * d(rng_), 0.5 * d(rng_), 0.5 * d(rng_));
+			dq.Normalize();
+			qNedFrd = qNedFrd * dq;
+		}
+		if(angularVelocityNoiseStd_ > 0.0){
+			std::normal_distribution<double> d(0.0, angularVelocityNoiseStd_);
+			angVelFrd += gz::math::Vector3d(d(rng_), d(rng_), d(rng_));
+		}
+
 		px4_msgs::msg::VehicleOdometry msg;
 		auto simUs = std::chrono::duration_cast<std::chrono::microseconds>(info.simTime).count();
 		msg.timestamp = static_cast<uint64_t>(simUs);
 		msg.timestamp_sample = msg.timestamp;
-		msg.position[0] = static_cast<float>(poseEnu.Pos().Y());
-		msg.position[1] = static_cast<float>(poseEnu.Pos().X());
-		msg.position[2] = static_cast<float>(-poseEnu.Pos().Z());
+		msg.position[0] = static_cast<float>(posNed.X());
+		msg.position[1] = static_cast<float>(posNed.Y());
+		msg.position[2] = static_cast<float>(posNed.Z());
 		// [w, x, y, z] -- matches this repo's existing VehicleOdometry.q
 		// convention (traj_manager.cpp, dummy_publisher.py).
 		msg.q = {static_cast<float>(qNedFrd.W()), static_cast<float>(qNedFrd.X()),
 		         static_cast<float>(qNedFrd.Y()), static_cast<float>(qNedFrd.Z())};
-		msg.velocity[0] = static_cast<float>(velEnu.Y());
-		msg.velocity[1] = static_cast<float>(velEnu.X());
-		msg.velocity[2] = static_cast<float>(-velEnu.Z());
+		msg.velocity[0] = static_cast<float>(velNed.X());
+		msg.velocity[1] = static_cast<float>(velNed.Y());
+		msg.velocity[2] = static_cast<float>(velNed.Z());
 		msg.angular_velocity[0] = static_cast<float>(angVelFrd.X());
 		msg.angular_velocity[1] = static_cast<float>(angVelFrd.Y());
 		msg.angular_velocity[2] = static_cast<float>(angVelFrd.Z());
@@ -216,6 +294,14 @@ private:
 	gz::math::Vector3d lastPosEnu_ = gz::math::Vector3d::Zero;
 	gz::math::Quaterniond lastRotEnu_ = gz::math::Quaterniond::Identity;
 	double lastT_ = 0.0;
+
+	// Optional synthetic sensor noise -- see publishOdometry()'s comment.
+	// All 0.0 by default (no noise).
+	double positionNoiseStd_ = 0.0;         // m, per axis
+	double velocityNoiseStd_ = 0.0;         // m/s, per axis
+	double attitudeNoiseStd_ = 0.0;         // rad, small-angle body-frame perturbation
+	double angularVelocityNoiseStd_ = 0.0;  // rad/s, per axis
+	std::mt19937 rng_;
 
 	rclcpp::Node::SharedPtr node_;
 	rclcpp::Publisher<px4_msgs::msg::VehicleOdometry>::SharedPtr odomPub_;
