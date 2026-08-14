@@ -1,7 +1,12 @@
 # Launches three spa_axis_node instances (see spa_axis_node.cpp) covering
 # x/North, y/East, and heave/Down -- output_topic is left at each one's
 # axis-derived default (/pad/spa/x_prediction, .../y_prediction,
-# .../heave_prediction), so all three publish without colliding.
+# .../heave_prediction), so all three publish without colliding. Also
+# launches spa_eval_logger.py (the CSV logger, see its own docstring) so a
+# ground-truth + predictions dataset is always being recorded (to
+# spa_eval_logger.py's own default /tmp/spa_eval, overwritten every run --
+# see spa_eval_analyze.py for the matching offline analysis, run
+# separately/afterward, straight from the source tree).
 #
 # Mode-detection tuning (t_fft_s, peak_sensitivity, max_modes, f_min_hz,
 # f_max_hz) is exposed as two GROUPS of launch arguments -- "horizontal"
@@ -63,10 +68,28 @@ def _launch_setup(context, *args, **kwargs):
             }],
         )
 
+    logger_node = Node(
+        package='spa_predictor',
+        executable='spa_eval_logger.py',
+        name='spa_eval_logger',
+        output='screen',
+        parameters=[{
+            # Wired to the SAME input_topic the axis predictors read, so an
+            # override here can't silently leave the logger recording
+            # ground truth from the old default while the predictors
+            # switched to a different source. x_topic/y_topic/heave_topic
+            # and output_dir are left at spa_eval_logger.py's own defaults,
+            # which already match this launch file's own defaults for the
+            # axis predictors' output_topic.
+            'truth_topic': input_topic,
+        }],
+    )
+
     return [
         axis_node(0, 'spa_axis_node_x', horizontal_overrides),
         axis_node(1, 'spa_axis_node_y', horizontal_overrides),
         axis_node(2, 'spa_axis_node_heave', heave_overrides),
+        logger_node,
     ]
 
 
