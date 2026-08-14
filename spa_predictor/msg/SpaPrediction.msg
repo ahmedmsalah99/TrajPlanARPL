@@ -5,6 +5,21 @@ std_msgs/Header header
 # false (predicted == filtered == 0, sigma == -1 for every bin).
 bool initialized
 
+# The time (seconds, SAME clock/epoch as the INPUT measurements fed to
+# addMeasurement() -- e.g. PX4 timestamp-derived seconds, NOT necessarily
+# ROS time) that horizon_s/predicted_value/predicted_velocity are relative
+# to: SpaPredictor::lastMeasurementTime() at the moment this message was
+# built. Deliberately separate from header.stamp, which is just "when this
+# ROS message happened to be published" (up to ~1/publish_rate_hz of ROS
+# wall-clock lag behind the last actual measurement, and on a clock that
+# may not even agree with the measurement timestamps' epoch/rate if
+# use_sim_time or a PX4/ROS time offset is in play). Anything computing
+# t_target = made_at_t + horizon_s to align a prediction against later
+# ground truth (e.g. an offline evaluation script) MUST use this field,
+# not header.stamp -- using header.stamp there silently introduces a
+# timing error of unknown, possibly time-varying size.
+float64 made_at_t
+
 # SpaPredictor::predict(0.0, ...): the Kalman-filtered CURRENT value, i.e.
 # the SPA used purely as a smoother with no lead time. Distinct from the raw
 # measurement -- see spa_predictor.h's class comment.

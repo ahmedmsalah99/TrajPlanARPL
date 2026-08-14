@@ -85,6 +85,17 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+# Diagnostic-only Python tools (CSV logger + offline evaluation/plotting --
+# see the scripts' own docstrings). Installed as PROGRAMS rather than
+# converting this ament_cmake package to ament_python, so both are runnable
+# via `ros2 run spa_predictor <script>.py`.
+install(
+  PROGRAMS
+    scripts/spa_eval_logger.py
+    scripts/spa_eval_analyze.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_export_include_directories(include)
 ament_export_libraries(spa_predictor_lib)
 ament_export_dependencies(rosidl_default_runtime ${dependencies})
