@@ -86,13 +86,32 @@ public:
 		// for the model and why it's applied there, not here. All default to
 		// 0.0 (no noise, exact ground truth), so existing worlds that don't
 		// set these are completely unaffected.
-		positionNoiseStd_ = sdf->Get<double>("position_noise_std", 0.0);
-		velocityNoiseStd_ = sdf->Get<double>("velocity_noise_std", 0.0);
-		attitudeNoiseStd_ = sdf->Get<double>("attitude_noise_std", 0.0);
-		angularVelocityNoiseStd_ = sdf->Get<double>("angular_velocity_noise_std", 0.0);
+		//
+		// Deliberately uses the single-argument sdf::Element::Get<T>(key)
+		// form (returns std::pair<T,bool>: value, wasFound) plus a local
+		// helper, rather than the two-argument Get<T>(key, default) form --
+		// on at least one real SDFormat release (confirmed via a field build
+		// error: "cannot convert 'std::pair<double,bool>' to 'double' in
+		// assignment"), the two-argument overload ALSO returns
+		// std::pair<T,bool> instead of T directly, breaking a direct
+		// assignment. The single-argument pair-returning form is documented
+		// consistently, so building the "use default if not found" logic
+		// locally sidesteps that overload-return-type inconsistency entirely.
+		auto getSdfDouble = [&](const char* key, double defaultValue){
+			auto result = sdf->Get<double>(key);
+			return result.second ? result.first : defaultValue;
+		};
+		auto getSdfInt = [&](const char* key, int defaultValue){
+			auto result = sdf->Get<int>(key);
+			return result.second ? result.first : defaultValue;
+		};
+		positionNoiseStd_ = getSdfDouble("position_noise_std", 0.0);
+		velocityNoiseStd_ = getSdfDouble("velocity_noise_std", 0.0);
+		attitudeNoiseStd_ = getSdfDouble("attitude_noise_std", 0.0);
+		angularVelocityNoiseStd_ = getSdfDouble("angular_velocity_noise_std", 0.0);
 		// >=0: reproducible noise (e.g. comparing two SPA tuning runs
 		// apples-to-apples). <0 (default): a real random seed each run.
-		int seed = sdf->Get<int>("noise_seed", -1);
+		int seed = getSdfInt("noise_seed", -1);
 		if(seed >= 0){
 			rng_.seed(static_cast<unsigned int>(seed));
 		}
