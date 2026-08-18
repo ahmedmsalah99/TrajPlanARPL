@@ -59,16 +59,51 @@ Deliberately standalone -- not linked into `ros_traj_gen_utils`' `traj_exe`
 yet; this is Phase 2 of the SPA rollout (validate against a known/simulated
 signal before anything consumes its output for real).
 
+`spa_landing_gate_node` is a Go/NoGo gate built on top of the five
+predictors' own published outputs (it does not touch `SpaPredictor`
+directly). At `publish_rate_hz` it looks up each of x/y/heave/roll/pitch's
+`SpaPrediction` at a fixed `horizon_s` (default 0.5s) and publishes
+`spa_predictor/LandingGate` with `go = true` only when ALL of:
+
+- **velocity**: predicted `|vx|`, `|vy|`, `|vz|` (from `predicted_velocity`)
+  are all `<= velocity_threshold`.
+- **upward**: the pad's predicted surface normal `s3`, reconstructed from
+  PREDICTED roll/pitch and the pad's current MEASURED yaw (yaw isn't
+  predicted -- out of SPA's scope; assumed to change negligibly over a
+  ~0.5s horizon), satisfies `s3 . world_up >= min_upward_cos`. Reuses
+  `TrajBase::calcPerchCond()`'s own `s3`/`world_up = (0,0,-1)` (NED)
+  convention exactly, rather than re-deriving a new sign convention that
+  could silently disagree with it.
+- **direction**: `s3`'s horizontal component is roughly opposite the pad's
+  predicted horizontal offset from the drone's current position (`pad_xy -
+  drone_xy`) -- i.e. the surface is leaning back toward the drone's
+  approach, not away from it. Trivially satisfied (not a failure) when
+  either vector's horizontal magnitude is below `direction_epsilon_m` --
+  there's no meaningful direction to compare against a near-flat pad or a
+  drone nearly directly overhead.
+
+`go` is forced `false` (and every other field left stale/meaningless) via
+`inputs_ready` whenever any of the five `SpaPrediction` topics hasn't
+published yet, doesn't have an entry at `horizon_s` (within
+`horizon_tol_s`), or the drone/pad `VehicleOdometry` sources haven't been
+heard from. This is a coarse, forward-looking sanity filter using SPA's
+predictions -- it does NOT replace `calcPerchCond()`'s own precise,
+azimuth-dependent terminal-condition rejection test at touchdown itself.
+
 ## Build & run
 
 ```bash
 colcon build --packages-select spa_predictor
 source install/setup.bash
 
-# All five signals (x, y, heave, roll, pitch) + the CSV logger, recommended:
+# All five signals (x, y, heave, roll, pitch) + the CSV logger + the Go/NoGo
+# landing gate, recommended:
 ros2 launch spa_predictor spa_axes.launch.py
 # Override the shared input source (default: pad_motion_gazebo's topic):
 ros2 launch spa_predictor spa_axes.launch.py input_topic:=/some/other/vehicle_odometry
+# Override the drone's own odometry source the landing gate needs (default:
+# matches ros_traj_gen_utils/traj_manager.cpp's own convention):
+ros2 launch spa_predictor spa_axes.launch.py drone_odom_topic:=/some/other/vehicle_odometry
 # Tune mode-detection GROUPED as horizontal (x+y) / heave / angular
 # (roll+pitch), rather than per-signal -- see the launch file's own header
 # comment for why. Any TUNABLE_PARAMS entry left unset keeps that node's
@@ -141,6 +176,22 @@ considerably noisier than a real measurement would be. Neither node
 exposes a `predicted_acceleration` OUTPUT -- deliberately out of scope for
 now, see `spa_predictor.h`'s class comment. `derived_accel` is logged as
 its own column by `spa_eval_logger.py`.
+
+## Parameters (spa_landing_gate_node)
+
+| Param | Default | Meaning |
+|---|---|---|
+| `x_topic` / `y_topic` / `heave_topic` / `roll_topic` / `pitch_topic` | `/pad/spa/<x\|y\|heave\|roll\|pitch>_prediction` | the five `SpaPrediction` sources -- matches the axis/angle nodes' own default `output_topic`s |
+| `pad_odom_topic` | `/pad/fmu/out/vehicle_odometry` | pad's own odometry, only used for its MEASURED yaw (see above) |
+| `drone_odom_topic` | `/fmu/out/vehicle_odometry` | the drone's own odometry, only used for its current x/y position |
+| `output_topic` | `/pad/landing_gate` | `spa_predictor/LandingGate` |
+| `publish_rate_hz` | `10.0` | how often the gate is evaluated/published |
+| `horizon_s` | `0.5` | fixed horizon every predicted quantity is evaluated at -- must match (within `horizon_tol_s`) an entry already in each `SpaPrediction`'s own `horizon_s[]` |
+| `horizon_tol_s` | `0.01` | matching tolerance for the lookup above |
+| `velocity_threshold` | `0.3` | m/s, see velocity condition above -- not calibrated to any particular vehicle/pad, tune to what your controller can track through touchdown |
+| `min_upward_cos` | `cos(30 deg) ~= 0.866` | see upward condition above -- deliberately looser than `calcPerchCond()`'s own precise tilt ceiling |
+| `max_direction_cos` | `0.0` | see direction condition above |
+| `direction_epsilon_m` | `0.05` | below this horizontal magnitude (m), the direction condition is trivially satisfied instead of computed -- see above |
 
 ## Offline accuracy evaluation
 

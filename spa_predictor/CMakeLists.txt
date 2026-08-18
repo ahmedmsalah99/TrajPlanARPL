@@ -18,6 +18,7 @@ find_package(Eigen3 REQUIRED)
 # Generate this package's interfaces
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/SpaPrediction.msg
+  msg/LandingGate.msg
   DEPENDENCIES std_msgs
 )
 
@@ -72,6 +73,16 @@ target_link_libraries(spa_angle_node
   ${cpp_typesupport_target}
 )
 
+# Executable: Go/NoGo landing gate (see spa_landing_gate_node.cpp) -- built
+# from the five predictor nodes' outputs, not a signal predictor itself
+# (doesn't link spa_predictor_lib), but does need this package's own
+# generated message type, hence the typesupport link below.
+add_executable(spa_landing_gate_node src/spa_landing_gate_node.cpp)
+ament_target_dependencies(spa_landing_gate_node ${dependencies})
+target_link_libraries(spa_landing_gate_node
+  ${cpp_typesupport_target}
+)
+
 install(
   DIRECTORY include/
   DESTINATION include
@@ -86,7 +97,7 @@ install(
 )
 
 install(
-  TARGETS spa_axis_node spa_angle_node
+  TARGETS spa_axis_node spa_angle_node spa_landing_gate_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
