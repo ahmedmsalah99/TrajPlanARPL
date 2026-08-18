@@ -87,22 +87,21 @@ public:
 		// 0.0 (no noise, exact ground truth), so existing worlds that don't
 		// set these are completely unaffected.
 		//
-		// Deliberately uses the single-argument sdf::Element::Get<T>(key)
-		// form (returns std::pair<T,bool>: value, wasFound) plus a local
-		// helper, rather than the two-argument Get<T>(key, default) form --
-		// on at least one real SDFormat release (confirmed via a field build
-		// error: "cannot convert 'std::pair<double,bool>' to 'double' in
-		// assignment"), the two-argument overload ALSO returns
-		// std::pair<T,bool> instead of T directly, breaking a direct
-		// assignment. The single-argument pair-returning form is documented
-		// consistently, so building the "use default if not found" logic
-		// locally sidesteps that overload-return-type inconsistency entirely.
+		// On the SDFormat release this was actually built against (confirmed
+		// via two independent field build errors, not assumed), the
+		// TWO-argument sdf::Element::Get<T>(key, default) returns
+		// std::pair<T,bool> (value, wasFound), while the ONE-argument
+		// Get<T>(key) returns a bare T. That's the opposite of an earlier
+		// attempt at this fix, which had it backwards. Local helpers unpack
+		// the pair from the two-argument form explicitly, rather than
+		// relying on either overload's return type matching what's written
+		// at the call site.
 		auto getSdfDouble = [&](const char* key, double defaultValue){
-			auto result = sdf->Get<double>(key);
+			auto result = sdf->Get<double>(key, defaultValue);
 			return result.second ? result.first : defaultValue;
 		};
 		auto getSdfInt = [&](const char* key, int defaultValue){
-			auto result = sdf->Get<int>(key);
+			auto result = sdf->Get<int>(key, defaultValue);
 			return result.second ? result.first : defaultValue;
 		};
 		positionNoiseStd_ = getSdfDouble("position_noise_std", 0.0);
