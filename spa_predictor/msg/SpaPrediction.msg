@@ -25,20 +25,26 @@ float64 made_at_t
 # measurement -- see spa_predictor.h's class comment.
 float64 filtered_value
 
-# The RAW acceleration measurement fed to addMeasurement() alongside the
+# The DERIVED acceleration value fed to addMeasurement() alongside the
 # most recent position/angle sample (see spa_predictor.h's class comment
 # on the estimator's second correction channel) -- an INPUT the estimator
 # was corrected against, not a model output (unlike predicted_value/
-# predicted_velocity below; do not confuse the two). NaN whenever no
-# acceleration reading was available for that sample (e.g. still
-# bootstrapping the finite-difference chain -- see
+# predicted_velocity below; do not confuse the two).
+#
+# NOT a real sensor measurement -- there is no accelerometer anywhere in
+# this pipeline. It is computed by finite-differencing already-published
+# data, entirely OUTSIDE SpaPredictor, before this class ever sees it:
+# one differentiation of the already-published velocity for x/y/heave
+# (spa_axis_node.cpp), two CHAINED differentiations (angle -> rate ->
+# accel) for roll/pitch, since there is no published Euler rate to start
+# from (spa_angle_node.cpp). "Derived", not "measured", is deliberate --
+# expect it to be considerably noisier than filtered_value/predicted_value
+# as a result. NaN whenever no derived reading was available for that
+# sample yet (e.g. still bootstrapping the finite-difference chain -- see
 # spa_axis_node.cpp/spa_angle_node.cpp's FiniteDifference members).
 # Published purely for visibility into what the estimator is actually
-# being corrected against -- this value is derived by finite-differencing
-# an already-noisy measured signal (one differentiation for x/y/heave,
-# two CHAINED differentiations for roll/pitch), so expect it to be
-# considerably noisier than filtered_value/predicted_value.
-float64 measured_accel
+# being corrected against.
+float64 derived_accel
 
 # Currently tracked modes (see SpaPredictor::currentModes()), largest
 # amplitude first. Parallel arrays, same length.

@@ -43,7 +43,7 @@ TRUTH_HEADER = ['t', 'x', 'y', 'z', 'vx', 'vy', 'vz',
                 'qw', 'qx', 'qy', 'qz', 'wx', 'wy', 'wz']
 PREDICTIONS_HEADER = ['axis', 't_made', 'horizon_s', 't_target',
                        'predicted_value', 'predicted_velocity', 'sigma_s',
-                       'filtered_value', 'measured_accel', 'offset', 'dropped_samples']
+                       'filtered_value', 'derived_accel', 'offset', 'dropped_samples']
 
 
 class SpaEvalLogger(Node):
@@ -138,7 +138,7 @@ class SpaEvalLogger(Node):
                 msg.predicted_velocity[i] if i < len(msg.predicted_velocity) else '',
                 msg.sigma_s[i] if i < len(msg.sigma_s) else '',
                 msg.filtered_value,
-                msg.measured_accel,
+                msg.derived_accel,
                 msg.offset,
                 msg.dropped_samples,
             ])
