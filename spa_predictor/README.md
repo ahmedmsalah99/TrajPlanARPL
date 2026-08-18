@@ -127,14 +127,20 @@ time-derivative at each horizon. It has no `sigma_s`-style self-assessment:
 only position/value is ever measured (`addMeasurement()`), so there's no
 independent velocity measurement to check a velocity prediction against.
 
-Don't confuse this with the acceleration MEASUREMENT channel above --
+Don't confuse this with the acceleration correction channel above --
 they're unrelated. `predicted_velocity` is a model OUTPUT (the estimator's
-own velocity state, sampled at a horizon); `measured_accel` (published for
-visibility -- see its `.msg` comment) is a model INPUT, the raw reading
-used to correct the SAME position-only state the model already had, NOT a
-prediction. Neither node exposes a `predicted_acceleration` OUTPUT --
-deliberately out of scope for now, see `spa_predictor.h`'s class comment.
-`measured_accel` is logged as its own column by `spa_eval_logger.py`.
+own velocity state, sampled at a horizon); `derived_accel` (published for
+visibility -- see its `.msg` comment) is a model INPUT, the value used to
+correct the SAME position-only state the model already had, NOT a
+prediction. Named "derived", not "measured" -- there is no accelerometer
+anywhere in this pipeline; it's computed by finite-differencing
+already-published data entirely outside `SpaPredictor` (one differentiation
+of the already-published velocity for x/y/heave, two chained
+differentiations, angle -> rate -> accel, for roll/pitch), so treat it as
+considerably noisier than a real measurement would be. Neither node
+exposes a `predicted_acceleration` OUTPUT -- deliberately out of scope for
+now, see `spa_predictor.h`'s class comment. `derived_accel` is logged as
+its own column by `spa_eval_logger.py`.
 
 ## Offline accuracy evaluation
 
