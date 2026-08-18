@@ -8,7 +8,11 @@
 # docstring) so a ground-truth + predictions dataset is always being
 # recorded (to spa_eval_logger.py's own default /tmp/spa_eval, overwritten
 # every run -- see spa_eval_analyze.py for the matching offline analysis,
-# run separately/afterward, straight from the source tree).
+# run separately/afterward, straight from the source tree), and
+# spa_landing_gate_node.cpp -- a Go/NoGo gate built from the five
+# predictors' own outputs, so it needs the DRONE's own odometry too (a
+# genuinely separate source from everything else launched here, which is
+# all about the PAD's state -- see drone_odom_topic below).
 #
 # Mode-detection tuning (t_fft_s, peak_sensitivity, max_modes, f_min_hz,
 # f_max_hz) is exposed as three GROUPS of launch arguments -- "horizontal"
@@ -61,6 +65,7 @@ def _group_overrides(context, prefix):
 
 def _launch_setup(context, *args, **kwargs):
     input_topic = LaunchConfiguration('input_topic')
+    drone_odom_topic = LaunchConfiguration('drone_odom_topic')
     horizontal_overrides = _group_overrides(context, 'horizontal')
     heave_overrides = _group_overrides(context, 'heave')
     angular_overrides = _group_overrides(context, 'angular')
@@ -111,6 +116,21 @@ def _launch_setup(context, *args, **kwargs):
         }],
     )
 
+    gate_node = Node(
+        package='spa_predictor',
+        executable='spa_landing_gate_node',
+        name='spa_landing_gate_node',
+        output='screen',
+        parameters=[{
+            # Same pad odometry source the five predictors themselves read
+            # (see input_topic above) -- kept consistent for the same
+            # reason the logger's truth_topic is wired to it rather than
+            # left at its own separate default.
+            'pad_odom_topic': input_topic,
+            'drone_odom_topic': drone_odom_topic,
+        }],
+    )
+
     return [
         axis_node(0, 'spa_axis_node_x', horizontal_overrides),
         axis_node(1, 'spa_axis_node_y', horizontal_overrides),
@@ -118,6 +138,7 @@ def _launch_setup(context, *args, **kwargs):
         angle_node(0, 'spa_angle_node_roll', angular_overrides),
         angle_node(1, 'spa_angle_node_pitch', angular_overrides),
         logger_node,
+        gate_node,
     ]
 
 
@@ -130,6 +151,17 @@ def generate_launch_description():
                 'px4_msgs/VehicleOdometry source shared by all five '
                 'predictors -- pad_motion_gazebo/PadMotionPlugin in '
                 'simulation, or a real vision-derived source.'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'drone_odom_topic',
+            default_value='/fmu/out/vehicle_odometry',
+            description=(
+                "px4_msgs/VehicleOdometry source for the DRONE's own state "
+                "(not the pad's -- see input_topic above), used only by "
+                "spa_landing_gate_node to compute the pad's horizontal "
+                "offset from the drone. Matches ros_traj_gen_utils/"
+                "traj_manager.cpp's own convention for this topic."
             ),
         ),
     ]
