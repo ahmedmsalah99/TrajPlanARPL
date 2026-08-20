@@ -73,9 +73,9 @@ float64 direction_cos
 # clockwise from the bow, viewed from above) and the drone's bearing FROM
 # the pad: positive = drone is on the pad's right/starboard side,
 # negative = left/port side, 0.0 = dead ahead or dead astern (on the
-# boundary). Picks which of allow_left/allow_right gates direction_ok
-# outright this cycle -- see the node's comment. Same NaN cases as
-# direction_cos above.
+# boundary). Whether this side matches the single active side
+# (allow_right) gates direction_ok outright this cycle -- see the node's
+# comment. Same NaN cases as direction_cos above.
 float64 side_cos
 
-bool direction_ok  # (allow_right if side_cos >= 0 else allow_left) AND direction_cos <= max_direction_cos (default 0.0 -- the whole rear half, astern through abeam), or the NaN special cases above
+bool direction_ok  # (side_cos >= 0) == allow_right, AND direction_cos <= max_direction_cos (default 0.0 -- the whole rear half, astern through abeam), or the NaN special cases above

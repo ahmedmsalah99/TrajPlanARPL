@@ -14,8 +14,8 @@
 //      already covered by #2) puts the drone somewhere in its REAR HALF
 //      (astern, or behind-left/behind-right out to abeam -- direction_cos
 //      <= max_direction_cos), favoring an approach from the pad's stern.
-//      allow_left/allow_right can switch off one whole side outright (per
-//      side_cos -- e.g. a vessel only boardable from its port quarter).
+//      allow_right selects which single side is the approach side (per
+//      side_cos -- true=right/starboard only, false=left/port only).
 //      A pad with no meaningful net horizontal motion (below
 //      static_speed_threshold_mps -- anchored/hovering, only bobbing with
 //      the waves) is treated as STATIC, where this is trivially true --
@@ -186,19 +186,15 @@ public:
 		// to (and including) abeam -- not just dead astern. Lower (toward
 		// -1.0) = stricter, narrowing toward requiring dead astern only;
 		// higher (toward +1.0) = looser, admitting more of the forward
-		// half too. Applies symmetrically to both sides -- see
-		// allow_left/allow_right below for a simple per-side on/off switch
-		// instead of a separate magnitude per side.
+		// half too. Applies to whichever single side is currently active
+		// -- see allow_right below.
 		declare_parameter("max_direction_cos", 0.0);
 
-		// Simple per-side on/off switch: if the drone ends up on the
-		// LEFT/port side (side_cos < 0) and allow_left is false, or the
-		// RIGHT/starboard side (side_cos >= 0) and allow_right is false,
-		// direction_ok fails outright regardless of max_direction_cos --
-		// e.g. a vessel only boardable from its port quarter sets
-		// allow_right to false. Both default true (no restriction, same
-		// as if this switch didn't exist).
-		declare_parameter("allow_left", true);
+		// Which side is active: true (default) -- only the RIGHT/starboard
+		// side (side_cos >= 0) passes; false -- only the LEFT/port side
+		// (side_cos < 0) passes. A vessel only boardable from one side sets
+		// this once for that side; there's no "both" or "neither" state,
+		// only which single side is currently the approach side.
 		declare_parameter("allow_right", true);
 
 		// Below this pad horizontal speed (m/s, predicted at horizon_s --
@@ -228,7 +224,6 @@ public:
 		velocityThreshold_ = get_parameter("velocity_threshold").as_double();
 		minInclinationCos_ = get_parameter("min_inclination_cos").as_double();
 		maxDirectionCos_ = get_parameter("max_direction_cos").as_double();
-		allowLeft_ = get_parameter("allow_left").as_bool();
 		allowRight_ = get_parameter("allow_right").as_bool();
 		staticSpeedThresholdMps_ = get_parameter("static_speed_threshold_mps").as_double();
 		directionEpsilonM_ = get_parameter("direction_epsilon_m").as_double();
@@ -272,10 +267,10 @@ public:
 
 		RCLCPP_INFO(get_logger(),
 			"spa_landing_gate_node up: horizon_s=%.2f, velocity_threshold=%.2f, "
-			"min_inclination_cos=%.3f, max_direction_cos=%.3f, allow_left=%s, allow_right=%s, "
+			"min_inclination_cos=%.3f, max_direction_cos=%.3f, allow_right=%s, "
 			"static_speed_threshold_mps=%.3f -- pad odom %s, drone odom %s -> %s @ %.1f Hz",
 			horizonS_, velocityThreshold_, minInclinationCos_, maxDirectionCos_,
-			allowLeft_ ? "true" : "false", allowRight_ ? "true" : "false",
+			allowRight_ ? "true" : "false",
 			staticSpeedThresholdMps_, padOdomTopic.c_str(), droneOdomTopic.c_str(),
 			get_parameter("output_topic").as_string().c_str(), rate);
 	}
@@ -395,12 +390,11 @@ private:
 			double bearingY = -dy;
 			out.direction_cos = (headingX * bearingX + headingY * bearingY) / dNorm;
 			// side_cos > 0 -> drone is on the pad's RIGHT/starboard side;
-			// < 0 -> LEFT/port side. allow_left/allow_right gate whichever
-			// side applies this cycle outright; max_direction_cos (same
-			// value, both sides) gates the angle within whichever side is
-			// still allowed.
+			// < 0 -> LEFT/port side. allow_right selects which single side
+			// is the active approach side this cycle; max_direction_cos then
+			// gates the angle within that side.
 			out.side_cos = (rightX * bearingX + rightY * bearingY) / dNorm;
-			bool sideAllowed = (out.side_cos >= 0.0) ? allowRight_ : allowLeft_;
+			bool sideAllowed = (out.side_cos >= 0.0) ? allowRight_ : !allowRight_;
 			out.direction_ok = sideAllowed && (out.direction_cos <= maxDirectionCos_);
 		}
 
@@ -413,7 +407,6 @@ private:
 	double velocityThreshold_ = 0.3;
 	double minInclinationCos_ = 0.866;
 	double maxDirectionCos_ = 0.0;
-	bool allowLeft_ = true;
 	bool allowRight_ = true;
 	double staticSpeedThresholdMps_ = 0.05;
 	double directionEpsilonM_ = 0.05;
