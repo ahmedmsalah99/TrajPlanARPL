@@ -57,13 +57,12 @@ bool inclination_ok  # inclination_cos >= min_inclination_cos (as configured) --
 # -- Direction condition: the pad's HEADING (yaw only, NOT the s3 tilt
 # above -- roll/pitch are already covered by the inclination condition)
 # vs. the drone's bearing FROM the pad. Cosine of the angle between the
-# pad's bow direction and that bearing: -1.0 = drone dead astern, +1.0 =
-# drone dead ahead of the bow. Which end of that range is "favorable" is
-# set per side by max_direction_cos_left/max_direction_cos_right below
-# (see side_cos) -- by default both favor the entire rear half (astern
-# through abeam) on their respective side. NaN whenever either the pad
-# has no meaningful net horizontal motion (STATIC mode -- see
-# static_speed_threshold_mps, an anchored/hovering pad's yaw has no
+# pad's bow direction and that bearing: -1.0 = drone dead astern
+# (favorable), 0.0 = drone abeam (left or right, still favorable), +1.0 =
+# drone dead ahead of the bow (unfavorable). Favors an approach from
+# anywhere in the pad's rear half, not only dead astern. NaN whenever
+# either the pad has no meaningful net horizontal motion (STATIC mode --
+# see static_speed_threshold_mps, an anchored/hovering pad's yaw has no
 # coherent "forward" to measure a stern arc from) or the drone is too
 # close horizontally to the pad to define a meaningful bearing at all
 # (direction_epsilon_m) -- direction_ok is trivially true in either case,
@@ -74,9 +73,9 @@ float64 direction_cos
 # clockwise from the bow, viewed from above) and the drone's bearing FROM
 # the pad: positive = drone is on the pad's right/starboard side,
 # negative = left/port side, 0.0 = dead ahead or dead astern (on the
-# boundary). Picks which of max_direction_cos_left/
-# max_direction_cos_right applies each cycle -- see the node's comment.
-# Same NaN cases as direction_cos above.
+# boundary). Picks which of allow_left/allow_right gates direction_ok
+# outright this cycle -- see the node's comment. Same NaN cases as
+# direction_cos above.
 float64 side_cos
 
-bool direction_ok  # direction_cos <= (max_direction_cos_right if side_cos >= 0 else max_direction_cos_left), both default 0.0 (the whole rear half, astern through abeam, on each side) -- or the NaN special cases above
+bool direction_ok  # (allow_right if side_cos >= 0 else allow_left) AND direction_cos <= max_direction_cos (default 0.0 -- the whole rear half, astern through abeam), or the NaN special cases above

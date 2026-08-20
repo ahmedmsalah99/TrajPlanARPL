@@ -79,12 +79,11 @@ directly). At `publish_rate_hz` it looks up each of x/y/heave/roll/pitch's
   roll/pitch are already covered by the inclination condition) puts the
   drone somewhere in its rear half relative to that heading -- astern, or
   behind-left/behind-right out to (and including) abeam, not only dead
-  astern. Each side is independently configurable
-  (`max_direction_cos_left`/`max_direction_cos_right`, picked per cycle by
-  `side_cos`'s sign -- e.g. a vessel only boardable from its port quarter
-  can have its starboard side excluded without affecting port). Trivially
-  satisfied (not a failure) when either the pad has no meaningful net
-  horizontal motion (below `static_speed_threshold_mps` -- an
+  astern. `allow_left`/`allow_right` (plain booleans, picked per cycle by
+  `side_cos`'s sign) can switch off one whole side outright -- e.g. a
+  vessel only boardable from its port quarter sets `allow_right` to
+  `false`. Trivially satisfied (not a failure) when either the pad has no
+  meaningful net horizontal motion (below `static_speed_threshold_mps` -- an
   anchored/hovering pad's yaw has no coherent "forward" to measure a stern
   arc from) or the drone is too close horizontally to the pad to define a
   meaningful bearing (`direction_epsilon_m`).
@@ -197,7 +196,8 @@ its own column by `spa_eval_logger.py`.
 | `horizon_tol_s` | `0.01` | matching tolerance for the lookup above |
 | `velocity_threshold` | `0.3` | m/s, see velocity condition above -- not calibrated to any particular vehicle/pad, tune to what your controller can track through touchdown |
 | `min_inclination_cos` | `cos(30 deg) ~= 0.866` | see inclination condition above -- deliberately looser than `calcPerchCond()`'s own precise tilt ceiling |
-| `max_direction_cos_left` / `max_direction_cos_right` | `0.0` / `0.0` | see direction condition above -- independently tunable per side (which side is which set by `side_cos`'s sign). `0.0` admits that side's entire rear half (astern through abeam); more negative narrows toward dead-astern-only, more positive admits part of the forward half too, up to always-pass at `1.0` |
+| `max_direction_cos` | `0.0` | see direction condition above -- admits the pad's entire rear half (astern through abeam) on either side; more negative narrows toward dead-astern-only, more positive admits part of the forward half too |
+| `allow_left` / `allow_right` | `true` / `true` | plain on/off switch for that side, no magnitude to tune -- set to `false` to exclude a side outright (which side is which set by `side_cos`'s sign) |
 | `static_speed_threshold_mps` | `0.05` | below this pad horizontal speed (m/s, predicted at `horizon_s`), the pad is considered STATIC and the direction condition is trivially satisfied -- see above |
 | `direction_epsilon_m` | `0.05` | below this horizontal magnitude (m), the direction condition is trivially satisfied instead of computed -- see above |
 
