@@ -68,4 +68,14 @@ bool inclination_ok  # inclination_cos >= min_inclination_cos (as configured) --
 # (direction_epsilon_m) -- direction_ok is trivially true in either case,
 # see the node's comment.
 float64 direction_cos
-bool direction_ok  # direction_cos <= max_direction_cos (default 0.0 -- the whole rear half, astern through abeam), or the NaN special cases above
+
+# Cosine of the angle between the pad's RIGHT/starboard direction (90 deg
+# clockwise from the bow, viewed from above) and the drone's bearing FROM
+# the pad: positive = drone is on the pad's right/starboard side,
+# negative = left/port side, 0.0 = dead ahead or dead astern (on the
+# boundary). Whether this side matches the single active side
+# (allow_right) gates direction_ok outright this cycle -- see the node's
+# comment. Same NaN cases as direction_cos above.
+float64 side_cos
+
+bool direction_ok  # (side_cos >= 0) == allow_right, AND direction_cos <= max_direction_cos (default 0.0 -- the whole rear half, astern through abeam), or the NaN special cases above
