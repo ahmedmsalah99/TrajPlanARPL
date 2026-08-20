@@ -75,13 +75,15 @@ directly). At `publish_rate_hz` it looks up each of x/y/heave/roll/pitch's
   `TrajBase::calcPerchCond()`'s own `s3`/`world_up = (0,0,-1)` (NED)
   convention exactly, rather than re-deriving a new sign convention that
   could silently disagree with it.
-- **direction**: `s3`'s horizontal component is roughly opposite the pad's
-  predicted horizontal offset from the drone's current position (`pad_xy -
-  drone_xy`) -- i.e. the surface is leaning back toward the drone's
-  approach, not away from it. Trivially satisfied (not a failure) when
-  either vector's horizontal magnitude is below `direction_epsilon_m` --
-  there's no meaningful direction to compare against a near-flat pad or a
-  drone nearly directly overhead.
+- **direction**: the pad's HEADING (yaw only -- not the `s3` tilt above;
+  roll/pitch are already covered by the inclination condition) puts the
+  drone somewhere in its rear half relative to that heading -- astern, or
+  behind-left/behind-right out to (and including) abeam, not only dead
+  astern. Trivially satisfied (not a failure) when either the pad has no
+  meaningful net horizontal motion (below `static_speed_threshold_mps` --
+  an anchored/hovering pad's yaw has no coherent "forward" to measure a
+  stern arc from) or the drone is too close horizontally to the pad to
+  define a meaningful bearing (`direction_epsilon_m`).
 
 `go` is forced `false` (and every other field left stale/meaningless) via
 `inputs_ready` whenever any of the five `SpaPrediction` topics hasn't
@@ -191,7 +193,8 @@ its own column by `spa_eval_logger.py`.
 | `horizon_tol_s` | `0.01` | matching tolerance for the lookup above |
 | `velocity_threshold` | `0.3` | m/s, see velocity condition above -- not calibrated to any particular vehicle/pad, tune to what your controller can track through touchdown |
 | `min_inclination_cos` | `cos(30 deg) ~= 0.866` | see inclination condition above -- deliberately looser than `calcPerchCond()`'s own precise tilt ceiling |
-| `max_direction_cos` | `cos(60 deg) = 0.5` | see direction condition above -- deliberately looser than the strict `cos(90 deg) = 0.0` "must be genuinely opposing" reading, which sits exactly on a boundary a real pad's yaw sway continuously crosses |
+| `max_direction_cos` | `0.0` | see direction condition above -- `0.0` admits the pad's entire rear half (astern through abeam); more negative narrows toward dead-astern-only, more positive admits part of the forward half too |
+| `static_speed_threshold_mps` | `0.05` | below this pad horizontal speed (m/s, predicted at `horizon_s`), the pad is considered STATIC and the direction condition is trivially satisfied -- see above |
 | `direction_epsilon_m` | `0.05` | below this horizontal magnitude (m), the direction condition is trivially satisfied instead of computed -- see above |
 
 ## Offline accuracy evaluation

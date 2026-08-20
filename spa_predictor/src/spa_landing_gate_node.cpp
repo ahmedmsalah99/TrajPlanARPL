@@ -5,15 +5,19 @@
 //
 //   1. Velocity condition: predicted x/y/heave velocity all within
 //      +/-velocity_threshold.
-//   2. Attitude condition: the pad's predicted surface normal (from
+//   2. Inclination condition: the pad's predicted surface normal (from
 //      PREDICTED roll/pitch + the pad's most recently MEASURED yaw --
-//      yaw isn't predicted, out of SPA's current scope) is
-//        a) tilted no more than a configured max angle off level
-//           (inclination_cos >= min_inclination_cos), and
-//        b) its horizontal direction roughly OPPOSES the pad's horizontal
-//           offset from the drone (direction_cos <= max_direction_cos) --
-//           i.e. the surface leans back toward the drone's approach
-//           direction, not away from it.
+//      yaw isn't predicted, out of SPA's current scope) is tilted no more
+//      than a configured max angle off level (inclination_cos >=
+//      min_inclination_cos).
+//   3. Direction condition: the pad's HEADING (yaw only -- roll/pitch are
+//      already covered by #2) puts the drone somewhere in its REAR HALF
+//      (astern, or behind-left/behind-right out to abeam -- direction_cos
+//      <= max_direction_cos), favoring an approach from the pad's stern.
+//      A pad with no meaningful net horizontal motion (below
+//      static_speed_threshold_mps -- anchored/hovering, only bobbing with
+//      the waves) is treated as STATIC, where this is trivially true --
+//      its yaw has no coherent "forward" to measure a stern arc from.
 //
 // This does NOT replace TrajBase::calcPerchCond()'s own precise terminal-
 // condition rejection test -- it's a coarser, EARLIER sanity filter using
@@ -169,26 +173,39 @@ public:
 		declare_parameter("min_inclination_cos", std::cos(30.0 * M_PI / 180.0));
 
 		// direction_cos <= this to pass the direction condition -- the
-		// angle between s3's horizontal component and the pad's horizontal
-		// offset from the drone must be at least this many degrees off
-		// perfectly ALIGNED (0 deg = leaning straight at the drone, worst
-		// case) to pass. Default 60 deg (cos(60 deg) = 0.5), not the
-		// strict 90 deg (cos = 0.0) a literal "must be opposing" reading
-		// would use -- that sits exactly on the boundary a real pad's
-		// yaw sway continuously crosses, flipping direction_ok true/false
-		// on essentially every cycle even when nothing unsafe is
-		// happening. This keeps the same intent (favor a pad leaning back
-		// toward the drone's approach, penalize one leaning toward it)
-		// with 30 deg of slack around that boundary. Lower (down to 0.0,
-		// or negative for stricter-than-perpendicular) = stricter; higher
-		// (toward 1.0) = looser, up to always-pass at 1.0.
-		declare_parameter("max_direction_cos", std::cos(60.0 * M_PI / 180.0));
+		// angle between the pad's HEADING (yaw -- roll/pitch are already
+		// covered by the inclination condition above, this is yaw only)
+		// and the drone's bearing FROM the pad must be at least this many
+		// degrees off dead-ahead (0 deg = drone sitting right off the
+		// pad's bow, worst case) to pass. Default 0.0 (90 deg off the
+		// bow): the entire REAR HALF relative to the pad's heading counts
+		// as eligible -- astern, or anywhere behind-left/behind-right up
+		// to (and including) abeam -- not just dead astern. Lower (toward
+		// -1.0) = stricter, narrowing toward requiring dead astern only;
+		// higher (toward +1.0) = looser, admitting more of the forward
+		// half too.
+		declare_parameter("max_direction_cos", 0.0);
+
+		// Below this pad horizontal speed (m/s, predicted at horizon_s --
+		// the same vx/vy the velocity condition above already computes),
+		// the pad is considered STATIC: not actually underway in any
+		// particular direction (e.g. an anchored/moored vessel, or this
+		// package's own sim rig, whose wave plugin heaves/rolls/pitches/
+		// yaws in place with no surge/sway translation at all). A static
+		// pad's yaw is just sloshing back and forth with the waves, not
+		// progressing anywhere -- there's no meaningful "bow" to define a
+		// stern-side approach arc from, so the direction condition is
+		// trivially satisfied rather than computed. Skipping this was the
+		// failure mode behind the earlier (now-replaced) s3-lean-based
+		// version of this check flipping direction_ok in and out for a
+		// pad that was never actually going anywhere.
+		declare_parameter("static_speed_threshold_mps", 0.05);
 
 		// Below this horizontal magnitude (m), treat direction_ok as
 		// trivially satisfied instead of computing a direction at all --
 		// normalizing a near-zero vector is meaningless/numerically
-		// unstable, and there's no real horizontal-alignment concern when
-		// the pad is nearly flat or the drone is nearly directly overhead.
+		// unstable, and there's no real bearing to speak of when the
+		// drone is nearly directly over/under the pad.
 		declare_parameter("direction_epsilon_m", 0.05);
 
 		horizonS_ = get_parameter("horizon_s").as_double();
@@ -196,6 +213,7 @@ public:
 		velocityThreshold_ = get_parameter("velocity_threshold").as_double();
 		minInclinationCos_ = get_parameter("min_inclination_cos").as_double();
 		maxDirectionCos_ = get_parameter("max_direction_cos").as_double();
+		staticSpeedThresholdMps_ = get_parameter("static_speed_threshold_mps").as_double();
 		directionEpsilonM_ = get_parameter("direction_epsilon_m").as_double();
 
 		rclcpp::QoS px4_qos(1);
@@ -237,9 +255,10 @@ public:
 
 		RCLCPP_INFO(get_logger(),
 			"spa_landing_gate_node up: horizon_s=%.2f, velocity_threshold=%.2f, "
-			"min_inclination_cos=%.3f, max_direction_cos=%.3f -- pad odom %s, drone odom %s -> %s @ %.1f Hz",
+			"min_inclination_cos=%.3f, max_direction_cos=%.3f, static_speed_threshold_mps=%.3f "
+			"-- pad odom %s, drone odom %s -> %s @ %.1f Hz",
 			horizonS_, velocityThreshold_, minInclinationCos_, maxDirectionCos_,
-			padOdomTopic.c_str(), droneOdomTopic.c_str(),
+			staticSpeedThresholdMps_, padOdomTopic.c_str(), droneOdomTopic.c_str(),
 			get_parameter("output_topic").as_string().c_str(), rate);
 	}
 
@@ -314,20 +333,40 @@ private:
 		out.inclination_cos = -out.s3_z;
 		out.inclination_ok = out.inclination_cos >= minInclinationCos_;
 
-		// pad - drone, horizontal (NED x/y = North/East) -- "the position of
-		// the pad wrt the drone".
+		// -- Direction condition: the pad's HEADING (yaw) vs. the drone's
+		// bearing FROM the pad -- NOT the tilt/roll-pitch lean (that's
+		// already covered by the inclination condition above). Favors an
+		// approach from the pad's stern: eligible whenever the drone sits
+		// anywhere in the pad's rear half relative to its own heading
+		// (astern, or behind-left/behind-right out to abeam), not only
+		// dead astern.
 		double dx = padX - static_cast<double>(droneOdomMsg_->position[0]);
 		double dy = padY - static_cast<double>(droneOdomMsg_->position[1]);
 		double dNorm = std::hypot(dx, dy);
-		double s3Norm = std::hypot(out.s3_x, out.s3_y);
-		if(dNorm < directionEpsilonM_ || s3Norm < directionEpsilonM_){
-			// No meaningful horizontal direction to compare -- see the .msg
-			// comment. Trivially satisfied, not a failure.
+		double padSpeed = std::hypot(out.vx, out.vy);
+		if(padSpeed < staticSpeedThresholdMps_ || dNorm < directionEpsilonM_){
+			// Static pad (no coherent heading to define a stern from) or
+			// drone too close horizontally to have a meaningful bearing --
+			// see the declare_parameter comments above. Trivially
+			// satisfied, not a failure.
 			out.direction_cos = std::numeric_limits<double>::quiet_NaN();
 			out.direction_ok = true;
 		}
 		else{
-			out.direction_cos = (out.s3_x * dx + out.s3_y * dy) / (s3Norm * dNorm);
+			// Pad's bow direction in world NED (North, East): yaw=0 -> bow
+			// points North, positive yaw rotates the bow toward East --
+			// verified against quatToRollPitchYaw()/rpyToQuat()'s own
+			// quaternion<->rotation-matrix convention at roll=pitch=0
+			// (first column of R reduces to exactly (cos(yaw),sin(yaw),0)
+			// there) rather than assumed, so this can't silently disagree
+			// with them about which way yaw turns.
+			double headingX = std::cos(measYaw);
+			double headingY = std::sin(measYaw);
+			// Bearing FROM the pad TO the drone -- the other way round
+			// from dx,dy above, which is pad-minus-drone.
+			double bearingX = -dx;
+			double bearingY = -dy;
+			out.direction_cos = (headingX * bearingX + headingY * bearingY) / dNorm;
 			out.direction_ok = out.direction_cos <= maxDirectionCos_;
 		}
 
@@ -339,7 +378,8 @@ private:
 	double horizonTolS_ = 0.01;
 	double velocityThreshold_ = 0.3;
 	double minInclinationCos_ = 0.866;
-	double maxDirectionCos_ = 0.5; // cos(60 deg) -- see declare_parameter("max_direction_cos", ...) above
+	double maxDirectionCos_ = 0.0;
+	double staticSpeedThresholdMps_ = 0.05;
 	double directionEpsilonM_ = 0.05;
 
 	spa_predictor::msg::SpaPrediction::SharedPtr xMsg_, yMsg_, heaveMsg_, rollMsg_, pitchMsg_;

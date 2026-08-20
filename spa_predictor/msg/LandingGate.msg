@@ -29,16 +29,18 @@ float64 vz
 float64 velocity_threshold  # as configured, for reference/logging
 bool velocity_ok            # |vx|, |vy|, |vz| all <= velocity_threshold
 
-# -- Attitude condition: the pad's predicted surface normal s3 at
-# horizon_s, reconstructed from PREDICTED roll/pitch (spa_angle_node) and
-# the pad's most recently MEASURED yaw (yaw is not predicted -- out of
-# SPA's current scope; assumes yaw changes negligibly over horizon_s,
-# which is reasonable for the ~0.5s horizons this gate is meant for, not
-# necessarily for longer ones). Same s3 convention TrajBase::calcPerchCond()
-# already uses (3rd column of the full rotation matrix; NED, world "up" is
-# (0,0,-1)) -- this gate does NOT replace calcPerchCond()'s own precise
-# terminal-condition rejection test, it's a coarser, earlier sanity filter
-# using SPA's forward-looking predictions instead of the current instant.
+# -- Inclination condition (tilt only -- see direction_cos below for the
+# separate, yaw-only heading condition): the pad's predicted surface
+# normal s3 at horizon_s, reconstructed from PREDICTED roll/pitch
+# (spa_angle_node) and the pad's most recently MEASURED yaw (yaw is not
+# predicted -- out of SPA's current scope; assumes yaw changes negligibly
+# over horizon_s, which is reasonable for the ~0.5s horizons this gate is
+# meant for, not necessarily for longer ones). Same s3 convention
+# TrajBase::calcPerchCond() already uses (3rd column of the full rotation
+# matrix; NED, world "up" is (0,0,-1)) -- this gate does NOT replace
+# calcPerchCond()'s own precise terminal-condition rejection test, it's a
+# coarser, earlier sanity filter using SPA's forward-looking predictions
+# instead of the current instant.
 float64 s3_x
 float64 s3_y
 float64 s3_z
@@ -52,13 +54,18 @@ float64 s3_z
 float64 inclination_cos
 bool inclination_ok  # inclination_cos >= min_inclination_cos (as configured) -- i.e. tilted no more than the configured max angle off level
 
-# Cosine between s3's HORIZONTAL direction and the pad's horizontal offset
-# from the drone (pad_xy - drone_xy): -1.0 = s3 points exactly opposite
-# that offset (the surface leans back toward the drone's approach --
-# favorable), +1.0 = s3 points exactly along it (the surface leans away,
-# unfavorable). NaN when either vector's horizontal magnitude is too small
-# to define a meaningful direction (pad nearly flat, or drone nearly
-# directly overhead) -- direction_ok is trivially true in that case, see
-# the node's comment.
+# -- Direction condition: the pad's HEADING (yaw only, NOT the s3 tilt
+# above -- roll/pitch are already covered by the inclination condition)
+# vs. the drone's bearing FROM the pad. Cosine of the angle between the
+# pad's bow direction and that bearing: -1.0 = drone dead astern
+# (favorable), 0.0 = drone abeam (left or right, still favorable), +1.0 =
+# drone dead ahead of the bow (unfavorable). Favors an approach from
+# anywhere in the pad's rear half, not only dead astern. NaN whenever
+# either the pad has no meaningful net horizontal motion (STATIC mode --
+# see static_speed_threshold_mps, an anchored/hovering pad's yaw has no
+# coherent "forward" to measure a stern arc from) or the drone is too
+# close horizontally to the pad to define a meaningful bearing at all
+# (direction_epsilon_m) -- direction_ok is trivially true in either case,
+# see the node's comment.
 float64 direction_cos
-bool direction_ok  # direction_cos <= max_direction_cos (default cos(60 deg) = 0.5, deliberately with slack short of the strict cos(90 deg) = 0.0 "must be opposing" reading -- see the node's comment), or the NaN special case above
+bool direction_ok  # direction_cos <= max_direction_cos (default 0.0 -- the whole rear half, astern through abeam), or the NaN special cases above
