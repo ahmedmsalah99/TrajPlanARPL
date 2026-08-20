@@ -61,4 +61,4 @@ bool inclination_ok  # inclination_cos >= min_inclination_cos (as configured) --
 # directly overhead) -- direction_ok is trivially true in that case, see
 # the node's comment.
 float64 direction_cos
-bool direction_ok  # direction_cos <= max_direction_cos (as configured), or the NaN special case above
+bool direction_ok  # direction_cos <= max_direction_cos (default cos(60 deg) = 0.5, deliberately with slack short of the strict cos(90 deg) = 0.0 "must be opposing" reading -- see the node's comment), or the NaN special case above

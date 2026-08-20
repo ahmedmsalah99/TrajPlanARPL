@@ -191,7 +191,7 @@ its own column by `spa_eval_logger.py`.
 | `horizon_tol_s` | `0.01` | matching tolerance for the lookup above |
 | `velocity_threshold` | `0.3` | m/s, see velocity condition above -- not calibrated to any particular vehicle/pad, tune to what your controller can track through touchdown |
 | `min_inclination_cos` | `cos(30 deg) ~= 0.866` | see inclination condition above -- deliberately looser than `calcPerchCond()`'s own precise tilt ceiling |
-| `max_direction_cos` | `0.0` | see direction condition above |
+| `max_direction_cos` | `cos(60 deg) = 0.5` | see direction condition above -- deliberately looser than the strict `cos(90 deg) = 0.0` "must be genuinely opposing" reading, which sits exactly on a boundary a real pad's yaw sway continuously crosses |
 | `direction_epsilon_m` | `0.05` | below this horizontal magnitude (m), the direction condition is trivially satisfied instead of computed -- see above |
 
 ## Offline accuracy evaluation

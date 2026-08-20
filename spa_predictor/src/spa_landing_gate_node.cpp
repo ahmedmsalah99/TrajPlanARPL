@@ -168,11 +168,21 @@ public:
 		// is even attempted.
 		declare_parameter("min_inclination_cos", std::cos(30.0 * M_PI / 180.0));
 
-		// direction_cos <= this to pass the direction condition. 0.0 = s3's
-		// horizontal component must be more than 90 deg from the pad's
-		// horizontal offset from the drone (i.e. genuinely opposing, not
-		// just "not fully aligned"). Lower (more negative) = stricter.
-		declare_parameter("max_direction_cos", 0.0);
+		// direction_cos <= this to pass the direction condition -- the
+		// angle between s3's horizontal component and the pad's horizontal
+		// offset from the drone must be at least this many degrees off
+		// perfectly ALIGNED (0 deg = leaning straight at the drone, worst
+		// case) to pass. Default 60 deg (cos(60 deg) = 0.5), not the
+		// strict 90 deg (cos = 0.0) a literal "must be opposing" reading
+		// would use -- that sits exactly on the boundary a real pad's
+		// yaw sway continuously crosses, flipping direction_ok true/false
+		// on essentially every cycle even when nothing unsafe is
+		// happening. This keeps the same intent (favor a pad leaning back
+		// toward the drone's approach, penalize one leaning toward it)
+		// with 30 deg of slack around that boundary. Lower (down to 0.0,
+		// or negative for stricter-than-perpendicular) = stricter; higher
+		// (toward 1.0) = looser, up to always-pass at 1.0.
+		declare_parameter("max_direction_cos", std::cos(60.0 * M_PI / 180.0));
 
 		// Below this horizontal magnitude (m), treat direction_ok as
 		// trivially satisfied instead of computing a direction at all --
@@ -329,7 +339,7 @@ private:
 	double horizonTolS_ = 0.01;
 	double velocityThreshold_ = 0.3;
 	double minInclinationCos_ = 0.866;
-	double maxDirectionCos_ = 0.0;
+	double maxDirectionCos_ = 0.5; // cos(60 deg) -- see declare_parameter("max_direction_cos", ...) above
 	double directionEpsilonM_ = 0.05;
 
 	spa_predictor::msg::SpaPrediction::SharedPtr xMsg_, yMsg_, heaveMsg_, rollMsg_, pitchMsg_;
