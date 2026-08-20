@@ -89,16 +89,25 @@ void rpyToQuat(double roll, double pitch, double yaw, double* w, double* x, doub
 	*z = cr * cp * sy - sr * sp * cy;
 }
 
-// s3 = 3rd column of the rotation matrix built from (w,x,y,z) -- the
-// SAME formula TrajBase::calcPerchCond() uses on a directly-measured
-// quaternion (see its s3 comment); reused here on a RECONSTRUCTED
-// quaternion (predicted roll/pitch + measured yaw) instead of a measured
-// one, everything else identical.
+// TrajBase::calcPerchCond() reads its s3 as the OUTWARD surface normal --
+// the direction pointing away from the pad, into the air the drone
+// approaches through -- straight off H's 3rd column, where H is a target
+// frame already built so that convention holds (see its own s3 comment:
+// "Surface normal s3 (outward)"). The quaternion built here, by contrast,
+// is the pad's own raw FRD body attitude (predicted roll/pitch + measured
+// yaw, same convention as VehicleOdometry.q) -- and in FRD, body Z points
+// DOWN, so at zero tilt the raw 3rd column is (0,0,1): straight into the
+// pad, not away from it. Negating it recovers the true outward normal
+// (zero tilt -> (0,0,-1), i.e. world-up, matching a flat/level pad facing
+// upward) before handing it to the same s3.dot(e3) TrajBase::calcPerchCond()
+// itself uses. Skipping this negation was the bug behind PR #131's upward
+// check reading false for an essentially-flat pad -- it was comparing the
+// INWARD normal against world-up and always getting a near-(-1) result.
 void quatToS3(double w, double x, double y, double z, double* sx, double* sy, double* sz)
 {
-	*sx = 2.0 * (x * z + w * y);
-	*sy = 2.0 * (y * z - w * x);
-	*sz = 1.0 - 2.0 * (x * x + y * y);
+	*sx = -(2.0 * (x * z + w * y));
+	*sy = -(2.0 * (y * z - w * x));
+	*sz = -(1.0 - 2.0 * (x * x + y * y));
 }
 
 // Finds the index in horizons whose value is within tol of target.
