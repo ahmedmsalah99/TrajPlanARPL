@@ -92,65 +92,67 @@ float TrajBase::autogenTimeSegment()
 
 void TrajBase::minimizeTime(int degreeOpt, int maxIters)
 {
+	if(segmentTimes.empty()){ return; }
 	double v_max = (limits.size() > 1) ? limits[1] : 0.0;
-	double a_max = (limits.size() > 2) ? limits[2] : 0.0;
-	if(!(v_max > 1e-6) || !(a_max > 1e-6)){
-		return; // no dynamic limits configured -> nothing to optimize against
-	}
-	const int kSamples = 200;
-	// The acceleration near the trajectory end can be pinned by a terminal
-	// boundary condition (e.g. a perch's ~g free-fall impact accel), which is NOT
-	// time-scalable and is allowed to exceed a_max. Ignore that approach window
-	// for the a_max check, otherwise it would veto every shrink and the path stays
-	// at the conservative autogen allocation. Velocity is checked over the whole
-	// trajectory (the terminal velocity is small, so it isn't the peak).
-	const double kTermAccelIgnoreFrac = 0.2; // ignore the last 20% of time for accel
-	for(int it = 0; it < maxIters; it++){
-		if(!checkSolved()){
-			return; // need a solved trajectory to measure; keep what we have
-		}
-		double T = 0.0;
-		for(size_t s = 0; s < segmentTimes.size(); s++){ T += segmentTimes[s]; }
-		if(T <= 1e-6){ return; }
+	const std::vector<double> base = segmentTimes; // autogen allocation (reference)
 
-		// Peak |velocity| (whole trajectory) and |acceleration| (excluding the
-		// terminal approach window) over x,y,z.
-		double a_cutoff = T * (1.0 - kTermAccelIgnoreFrac);
-		double v_peak = 0.0, a_peak = 0.0;
-		for(int k = 0; k <= kSamples; k++){
-			double t = T * (double)k / (double)kSamples;
-			Eigen::MatrixXd st = evalTraj(t);
-			double v = st.block(1, 0, 1, 3).norm();
-			if(v > v_peak){ v_peak = v; }
-			if(t <= a_cutoff){
-				double a = st.block(2, 0, 1, 3).norm();
-				if(a > a_peak){ a_peak = a; }
-			}
-		}
-
-		// Uniform time scale s: velocity ~ 1/s, acceleration ~ 1/s^2.
-		double s_v = v_peak / v_max;
-		double s_a = sqrt(a_peak / a_max);
-		double scale = std::max(s_v, s_a);
-
-		// Only SHRINK (speed up) when there is slack under both limits. If the
-		// trajectory is already at/over a limit (scale >= ~1 -- e.g. the fixed
-		// free-fall acceleration of a perch terminal), leave it: we cannot go
-		// faster without violating the limits.
-		if(scale > 0.98){
-			break;
-		}
-		scale = std::max(scale, 0.5); // cap the per-iteration shrink for stability
-
-		std::vector<double> prev = segmentTimes;
-		for(size_t s = 0; s < segmentTimes.size(); s++){ segmentTimes[s] *= scale; }
+	// Commit a uniform time-scale of `base` and resolve.
+	auto applyScale = [&](double s){
+		for(size_t i = 0; i < segmentTimes.size(); i++){ segmentTimes[i] = base[i] * s; }
 		solve(degreeOpt);
-		if(!checkSolved()){
-			segmentTimes = prev; // the shrink broke feasibility -> revert and stop
-			solve(degreeOpt);
-			break;
+	};
+	// Peak |velocity| over x,y,z (0 if the solve is invalid/degenerate).
+	auto peakVel = [&]() -> double {
+		if(!checkSolved()){ return 0.0; }
+		double T = 0.0; for(double s : segmentTimes){ T += s; }
+		if(T <= 1e-6){ return 0.0; }
+		double vpk = 0.0;
+		for(int k = 0; k <= 100; k++){
+			Eigen::MatrixXd st = evalTraj(T * (double)k / 100.0);
+			double v = st.block(1, 0, 1, 3).norm();
+			if(v > vpk){ vpk = v; }
+		}
+		return vpk;
+	};
+	// Feasible = the solver produced a real MOVING trajectory and (if a velocity
+	// limit is set) its peak velocity is within it. Acceleration is intentionally
+	// NOT bounded here: a perch terminal pins it at ~g and that cannot be scaled
+	// away, so bounding it would veto every shrink.
+	auto feasible = [&]() -> bool {
+		double v = peakVel();
+		if(v <= 1e-3){ return false; }                          // degenerate / not moving
+		if(v_max > 1e-6 && v > v_max * 1.05){ return false; }   // over the velocity limit
+		return true;
+	};
+
+	// 1) Get a feasible reference scale, growing the time if `base` is degenerate
+	//    (e.g. the autogen time is so short the perch band makes the QP collapse).
+	double hi = 1.0;
+	applyScale(hi);
+	int guard = 0;
+	while(!feasible() && guard < maxIters){ hi *= 1.5; applyScale(hi); guard++; }
+	if(!feasible()){ applyScale(1.0); return; } // couldn't find a feasible time -> leave base
+
+	// 2) Shrink until infeasible to bracket the minimum-time scale.
+	double lo = 0.0; bool bracketed = false;
+	double s = hi * 0.5;
+	for(int i = 0; i < maxIters; i++){
+		applyScale(s);
+		if(feasible()){ hi = s; s *= 0.5; }
+		else { lo = s; bracketed = true; break; }
+	}
+	// 3) Bisect [lo (infeasible), hi (feasible)] for the smallest feasible time.
+	if(bracketed){
+		for(int i = 0; i < maxIters; i++){
+			double mid = 0.5 * (lo + hi);
+			applyScale(mid);
+			if(feasible()){ hi = mid; } else { lo = mid; }
 		}
 	}
+	// 4) Commit the smallest feasible scale (always a valid, moving solve).
+	applyScale(hi);
+	double Tf = 0.0; for(double t : segmentTimes){ Tf += t; }
+	std::cout << "[minimizeTime] final T=" << Tf << " scale=" << hi << std::endl;
 }
 
 
