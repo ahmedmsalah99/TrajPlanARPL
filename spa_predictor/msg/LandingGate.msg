@@ -1,7 +1,7 @@
 std_msgs/Header header
 
 # The Go/NoGo decision -- true only when EVERY sub-condition below holds
-# (see velocity_ok, upward_ok, direction_ok) AND inputs_ready is true.
+# (see velocity_ok, inclination_ok, direction_ok) AND inputs_ready is true.
 # Matches the paper's (Abujoub, McPhee & Irani, Sec. 3.1.1) Go-NoGo
 # terminology -- this is the perch analogue of it, built from the SPA
 # predictors' own predicted state rather than a raw instantaneous reading.
@@ -43,10 +43,14 @@ float64 s3_x
 float64 s3_y
 float64 s3_z
 
-# s3 . world_up (world_up = (0,0,-1) in NED) -- 1.0 = perfectly upward,
-# 0.0 = perfectly horizontal (a wall), negative = overhanging/downward.
-float64 upward_cos
-bool upward_ok  # upward_cos >= min_upward_cos (as configured)
+# Cosine of the INCLINATION angle -- the angle between s3 and world_up
+# (world_up = (0,0,-1) in NED), i.e. how far the pad's surface is tilted
+# off dead-level. 1.0 = 0 deg (perfectly level, ideal), cos(30 deg) ~= 0.866
+# = tilted 30 deg off level, 0.0 = 90 deg (a vertical wall), negative =
+# tilted past vertical (overhanging/upside-down -- a quadrotor cannot
+# thrust downward to hold against that).
+float64 inclination_cos
+bool inclination_ok  # inclination_cos >= min_inclination_cos (as configured) -- i.e. tilted no more than the configured max angle off level
 
 # Cosine between s3's HORIZONTAL direction and the pad's horizontal offset
 # from the drone (pad_xy - drone_xy): -1.0 = s3 points exactly opposite

@@ -8,7 +8,8 @@
 //   2. Attitude condition: the pad's predicted surface normal (from
 //      PREDICTED roll/pitch + the pad's most recently MEASURED yaw --
 //      yaw isn't predicted, out of SPA's current scope) is
-//        a) sufficiently upward-facing (upward_cos >= min_upward_cos), and
+//        a) tilted no more than a configured max angle off level
+//           (inclination_cos >= min_inclination_cos), and
 //        b) its horizontal direction roughly OPPOSES the pad's horizontal
 //           offset from the drone (direction_cos <= max_direction_cos) --
 //           i.e. the surface leans back toward the drone's approach
@@ -156,14 +157,16 @@ public:
 		// through at touchdown.
 		declare_parameter("velocity_threshold", 0.3);
 
-		// s3 . world_up >= this to pass the upward condition. Default
-		// cos(30 deg) ~= 0.866 -- a broad, coarse sanity bound, DELIBERATELY
-		// looser than calcPerchCond()'s own precise, azimuth-dependent
-		// rejection test (~19-25 deg ceiling, see the horiz_accel_limit
-		// budget discussion) -- this gate isn't meant to replace that, only
-		// to reject predictions that are obviously not landable before a
-		// trajectory is even attempted.
-		declare_parameter("min_upward_cos", std::cos(30.0 * M_PI / 180.0));
+		// s3 . world_up >= this to pass the inclination condition -- i.e. the
+		// pad's tilt off dead-level, expressed as a cosine, must not exceed
+		// the angle this represents. Default cos(30 deg) ~= 0.866 -- a
+		// broad, coarse sanity bound, DELIBERATELY looser than
+		// calcPerchCond()'s own precise, azimuth-dependent rejection test
+		// (~19-25 deg ceiling, see the horiz_accel_limit budget discussion)
+		// -- this gate isn't meant to replace that, only to reject
+		// predictions that are obviously not landable before a trajectory
+		// is even attempted.
+		declare_parameter("min_inclination_cos", std::cos(30.0 * M_PI / 180.0));
 
 		// direction_cos <= this to pass the direction condition. 0.0 = s3's
 		// horizontal component must be more than 90 deg from the pad's
@@ -181,7 +184,7 @@ public:
 		horizonS_ = get_parameter("horizon_s").as_double();
 		horizonTolS_ = get_parameter("horizon_tol_s").as_double();
 		velocityThreshold_ = get_parameter("velocity_threshold").as_double();
-		minUpwardCos_ = get_parameter("min_upward_cos").as_double();
+		minInclinationCos_ = get_parameter("min_inclination_cos").as_double();
 		maxDirectionCos_ = get_parameter("max_direction_cos").as_double();
 		directionEpsilonM_ = get_parameter("direction_epsilon_m").as_double();
 
@@ -224,8 +227,8 @@ public:
 
 		RCLCPP_INFO(get_logger(),
 			"spa_landing_gate_node up: horizon_s=%.2f, velocity_threshold=%.2f, "
-			"min_upward_cos=%.3f, max_direction_cos=%.3f -- pad odom %s, drone odom %s -> %s @ %.1f Hz",
-			horizonS_, velocityThreshold_, minUpwardCos_, maxDirectionCos_,
+			"min_inclination_cos=%.3f, max_direction_cos=%.3f -- pad odom %s, drone odom %s -> %s @ %.1f Hz",
+			horizonS_, velocityThreshold_, minInclinationCos_, maxDirectionCos_,
 			padOdomTopic.c_str(), droneOdomTopic.c_str(),
 			get_parameter("output_topic").as_string().c_str(), rate);
 	}
@@ -296,9 +299,10 @@ private:
 		quatToS3(qw, qx, qy, qz, &out.s3_x, &out.s3_y, &out.s3_z);
 
 		// world_up = (0,0,-1) in NED -- matches TrajBase::calcPerchCond()'s
-		// e3 exactly.
-		out.upward_cos = -out.s3_z;
-		out.upward_ok = out.upward_cos >= minUpwardCos_;
+		// e3 exactly. inclination_cos = cos(angle between s3 and world_up),
+		// i.e. how far off dead-level the pad's surface is tilted.
+		out.inclination_cos = -out.s3_z;
+		out.inclination_ok = out.inclination_cos >= minInclinationCos_;
 
 		// pad - drone, horizontal (NED x/y = North/East) -- "the position of
 		// the pad wrt the drone".
@@ -317,14 +321,14 @@ private:
 			out.direction_ok = out.direction_cos <= maxDirectionCos_;
 		}
 
-		out.go = out.velocity_ok && out.upward_ok && out.direction_ok;
+		out.go = out.velocity_ok && out.inclination_ok && out.direction_ok;
 		pub_->publish(out);
 	}
 
 	double horizonS_ = 0.5;
 	double horizonTolS_ = 0.01;
 	double velocityThreshold_ = 0.3;
-	double minUpwardCos_ = 0.866;
+	double minInclinationCos_ = 0.866;
 	double maxDirectionCos_ = 0.0;
 	double directionEpsilonM_ = 0.05;
 

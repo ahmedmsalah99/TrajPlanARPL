@@ -67,10 +67,11 @@ directly). At `publish_rate_hz` it looks up each of x/y/heave/roll/pitch's
 
 - **velocity**: predicted `|vx|`, `|vy|`, `|vz|` (from `predicted_velocity`)
   are all `<= velocity_threshold`.
-- **upward**: the pad's predicted surface normal `s3`, reconstructed from
-  PREDICTED roll/pitch and the pad's current MEASURED yaw (yaw isn't
+- **inclination**: the pad's predicted surface normal `s3`, reconstructed
+  from PREDICTED roll/pitch and the pad's current MEASURED yaw (yaw isn't
   predicted -- out of SPA's scope; assumed to change negligibly over a
-  ~0.5s horizon), satisfies `s3 . world_up >= min_upward_cos`. Reuses
+  ~0.5s horizon), isn't tilted more than a configured max angle off dead
+  level: `s3 . world_up >= min_inclination_cos`. Reuses
   `TrajBase::calcPerchCond()`'s own `s3`/`world_up = (0,0,-1)` (NED)
   convention exactly, rather than re-deriving a new sign convention that
   could silently disagree with it.
@@ -189,7 +190,7 @@ its own column by `spa_eval_logger.py`.
 | `horizon_s` | `0.5` | fixed horizon every predicted quantity is evaluated at -- must match (within `horizon_tol_s`) an entry already in each `SpaPrediction`'s own `horizon_s[]` |
 | `horizon_tol_s` | `0.01` | matching tolerance for the lookup above |
 | `velocity_threshold` | `0.3` | m/s, see velocity condition above -- not calibrated to any particular vehicle/pad, tune to what your controller can track through touchdown |
-| `min_upward_cos` | `cos(30 deg) ~= 0.866` | see upward condition above -- deliberately looser than `calcPerchCond()`'s own precise tilt ceiling |
+| `min_inclination_cos` | `cos(30 deg) ~= 0.866` | see inclination condition above -- deliberately looser than `calcPerchCond()`'s own precise tilt ceiling |
 | `max_direction_cos` | `0.0` | see direction condition above |
 | `direction_epsilon_m` | `0.05` | below this horizontal magnitude (m), the direction condition is trivially satisfied instead of computed -- see above |
 
