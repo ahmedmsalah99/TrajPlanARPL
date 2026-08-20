@@ -411,6 +411,7 @@ bool TrajBase::calcPerchCond(Eigen::Matrix4d H){
 	// orientation: a component INTO the surface (-s3, magnitude impactNormalVel = vS1)
 	// plus a component ALONG the surface, down-slope (t_up, magnitude impactSlideVel = vS3).
 	Eigen::Vector4d impVel = Eigen::Vector4d::Zero();
+	Eigen::VectorXd finalAccel = Eigen::VectorXd::Zero(4);
 	double incl_angle = atan2(sin_incl, cos_incl); // inclination angle in [0, pi/2]
 	if(incl_angle >= minPitch){
 		Eigen::Vector3d t_up = e3 - cos_incl * s3;  // world-up projected into the surface plane
@@ -421,15 +422,20 @@ bool TrajBase::calcPerchCond(Eigen::Matrix4d H){
 		impVel(1) = v(1);
 		impVel(2) = v(2);
 		impVel(3) = 0.0; // yaw rate
-	}
-	// else: too flat -> soft landing (zero impact velocity)
 
-	// Terminal acceleration so that b3 = s3 at contact (eq. 12): xdd = force*s3 - g*e3.
-	// Written via e3 so it follows the frame's up-vector (in NED this adds +g on z).
-	Eigen::VectorXd finalAccel = Eigen::VectorXd::Zero(4);
-	finalAccel[0] = s3(0) * force - 9.81 * e3(0);
-	finalAccel[1] = s3(1) * force - 9.81 * e3(1);
-	finalAccel[2] = s3(2) * force - 9.81 * e3(2);
+		// Terminal acceleration so that b3 = s3 at contact (eq. 12): xdd = force*s3 - g*e3.
+		// Written via e3 so it follows the frame's up-vector (in NED this adds +g on z).
+		finalAccel[0] = s3(0) * force - 9.81 * e3(0);
+		finalAccel[1] = s3(1) * force - 9.81 * e3(1);
+		finalAccel[2] = s3(2) * force - 9.81 * e3(2);
+	}
+	// else: too flat to need perch-style contact physics (pressing the thrust
+	// axis into an inclined surface) -- just arrive level and at rest.
+	// finalAccel/impVel both stay zero (hover, not eq.12's free-fall/zero-thrust
+	// degenerate case, which is what "force*s3 - g*e3" collapses to as
+	// force -> 0 for a flat surface -- that's an artifact of applying the
+	// inclined-perch formula outside where it's meant to apply, not an
+	// intended "soft landing" behavior).
 	std::cout << "final acceleration " << finalAccel[0] << std::endl;
 	std::cout << "final acceleration " << finalAccel[1] << std::endl;
 	std::cout << "final acceleration " << finalAccel[2] << std::endl;
